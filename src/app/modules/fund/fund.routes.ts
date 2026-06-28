@@ -5,7 +5,9 @@ import { validateBody } from '../../../middleware/validate';
 import { createFundSchema } from './fund.validation';
 import * as ctrl from './fund.controller';
 import * as members from '../membership/membership.controller';
+import * as deposits from '../deposit/deposit.controller';
 import { decideJoinSchema, createInviteSchema } from '../membership/membership.validation';
+import { rejectDepositSchema, submitDepositSchema } from '../deposit/deposit.validation';
 
 const router = Router();
 
@@ -32,5 +34,12 @@ router.patch(
 
 // invites
 router.post('/:fundId/invites', fundRole('moderator'), validateBody(createInviteSchema), members.createInvite);
+
+// deposits
+router.post('/:fundId/deposits', fundRole('member'), validateBody(submitDepositSchema), deposits.submitDeposit);
+router.get('/:fundId/deposits', fundRole('moderator'), deposits.listDeposits);
+router.get('/:fundId/me/deposits', fundRole('member'), deposits.listMyDeposits);
+router.patch('/:fundId/deposits/:id/verify', fundRole('moderator'), deposits.verifyDeposit);
+router.patch('/:fundId/deposits/:id/reject', fundRole('moderator'), validateBody(rejectDepositSchema), deposits.rejectDeposit);
 
 export const fundRoutes = router;
