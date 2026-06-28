@@ -30,6 +30,7 @@ const schema = z.object({
   SMS_SENDER_ID: z.string().optional(),
   SMS_METHOD: z.enum(['GET', 'POST']).default('GET'),
   SMS_BODY_FORMAT: z.enum(['query', 'form', 'json']).default('query'),
+  SMS_TYPE: z.string().default('text'),
   SMS_AUTH_PARAM: z.string().default('api_key'),
   SMS_SENDER_PARAM: z.string().default('senderid'),
   SMS_TO_PARAM: z.string().default('number'),

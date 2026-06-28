@@ -21,6 +21,7 @@ function buildPayload(phone: string, message: string): SmsPayload {
 
   return {
     [env.SMS_AUTH_PARAM]: env.SMS_API_KEY,
+    type: env.SMS_TYPE,
     [env.SMS_SENDER_PARAM]: env.SMS_SENDER_ID,
     [env.SMS_TO_PARAM]: phone.replace(/^\+/, ''),
     [env.SMS_MESSAGE_PARAM]: message,
