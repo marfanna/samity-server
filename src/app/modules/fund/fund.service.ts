@@ -2,7 +2,9 @@ import mongoose, { Types } from 'mongoose';
 import { Fund } from './fund.model';
 import { Membership } from '../membership/membership.model';
 import { Deposit } from '../deposit/deposit.model';
+import { Investment } from '../investment/investment.model';
 import { User } from '../user/user.model';
+import { getMembers } from '../membership/membership.service';
 import { NavSnapshot } from '../nav/navSnapshot.model';
 import { AuditLog } from '../audit/auditLog.model';
 import { appendLedger } from '../../../shared/ledger';
@@ -164,4 +166,27 @@ export async function getNav(fundId: string) {
   if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
   const nav = await computeNav(fundId);
   return { ...nav, at: new Date().toISOString() };
+}
+
+/**
+ * Fund detail for the overview screen: fund-level investments (visible to all members)
+ * + the member roster (names + roles only — no per-member amounts).
+ */
+export async function getOverview(fundId: string) {
+  const fund = await Fund.findById(fundId).lean();
+  if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+
+  const investments = await Investment.find({ fundId }).sort({ createdAt: -1 }).lean();
+  const members = await getMembers(fundId);
+
+  return {
+    investments: investments.map((inv) => ({
+      id: String(inv._id),
+      destination: inv.destination,
+      amountCost: inv.amountCost,
+      state: inv.state,
+      actualReturn: inv.state === 'RETURNED' || inv.state === 'SETTLED' ? inv.actualReturn : null,
+    })),
+    members,
+  };
 }

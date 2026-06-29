@@ -23,6 +23,19 @@ const schema = z.object({
 
   CORS_ORIGIN: z.string().default('*'),
 
+  // Object storage (S3-compatible: AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO)
+  STORAGE_ENABLED: boolFromEnv.default(false),
+  STORAGE_ENDPOINT: z.string().url().optional(),       // omit for AWS; set for R2/Spaces/MinIO
+  STORAGE_REGION: z.string().default('auto'),
+  STORAGE_BUCKET: z.string().optional(),
+  STORAGE_ACCESS_KEY: z.string().optional(),
+  STORAGE_SECRET_KEY: z.string().optional(),
+  STORAGE_URL_BASE: z.string().url().optional(),       // public CDN base URL for files
+
+  // Firebase Cloud Messaging (Phase 14)
+  // Base64-encode the service account JSON: base64 < service-account.json | tr -d '\n'
+  FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
+
   SMS_ENABLED: boolFromEnv.default(false),
   SMS_BASE_URL: z.string().url().optional(),
   SMS_SEND_PATH: z.string().default(''),

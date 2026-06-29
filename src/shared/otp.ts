@@ -36,7 +36,15 @@ export async function issueOtp(
     { upsert: true },
   );
 
-  await sendSms(phone, `Your Samity code is ${code}. Valid ${TTL_SEC / 60} minutes.`);
+  // Delivery is best-effort: the OTP is already persisted above, so a gateway quirk
+  // (e.g. an unexpected success-response body) must not fail issuance — that would block
+  // the user even when the SMS actually went out. Log failures for visibility/regex tuning.
+  try {
+    await sendSms(phone, `Your Samity code is ${code}. Valid ${TTL_SEC / 60} minutes.`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`⚠️ OTP SMS dispatch issue for ${phone} (code still issued):`, (err as Error).message);
+  }
   return { expiresInSec: TTL_SEC };
 }
 

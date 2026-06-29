@@ -13,3 +13,8 @@ export const getNav = catchAsync(async (req: Request, res: Response) => {
   const data = await fundService.getNav(req.params.fundId!);
   sendResponse(res, httpStatus.OK, data);
 });
+
+export const getOverview = catchAsync(async (req: Request, res: Response) => {
+  const data = await fundService.getOverview(req.params.fundId!);
+  sendResponse(res, httpStatus.OK, data);
+});
