@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { Fund } from '../fund/fund.model';
 import { Membership } from './membership.model';
+import type { Role } from './membership.model';
 import { JoinRequest } from './joinRequest.model';
 import { Invite } from './invite.model';
 import { User } from '../user/user.model';
@@ -40,13 +41,21 @@ export async function exploreFunds(limit = 50) {
 /** Member roster — names + roles only (privacy split: no amounts). */
 export async function getMembers(fundId: string) {
   const memberships = await Membership.find({ fundId, status: { $ne: 'EXITED' } }).lean();
-  const users = await User.find({ _id: { $in: memberships.map((m) => m.userId) } }, { name: 1 }).lean();
-  const nameById = new Map(users.map((u) => [String(u._id), u.name]));
-  return memberships.map((m) => ({
-    membershipId: String(m._id),
-    name: nameById.get(String(m.userId)) ?? '—',
-    role: m.role,
-  }));
+  const users = await User.find(
+    { _id: { $in: memberships.map((m) => m.userId) } },
+    { name: 1, status: 1 },
+  ).lean();
+  const userById = new Map(users.map((u) => [String(u._id), u]));
+  return memberships.map((m) => {
+    const u = userById.get(String(m.userId));
+    return {
+      membershipId: String(m._id),
+      name: u?.name ?? '—',
+      role: m.role,
+      // imported member who hasn't installed + claimed their account yet
+      pendingClaim: u?.status === 'INVITED',
+    };
+  });
 }
 
 /** Request to join a PUBLIC fund. INVITE_ONLY funds require an invite instead. */
@@ -152,6 +161,82 @@ export async function createInvite(actorId: string, fundId: string, phone: strin
     link: `${INVITE_BASE}/${token}`,
     expiresAt: expiresAt.toISOString(),
   };
+}
+
+/**
+ * Change a member's role (admin only). Cannot promote to admin or change the admin.
+ * targetMembershipId is the Membership._id (not userId) so the caller is unambiguous.
+ */
+export async function changeMemberRole(
+  actorId: string,
+  fundId: string,
+  targetMembershipId: string,
+  newRole: Role,
+) {
+  const target = await Membership.findOne({ _id: targetMembershipId, fundId });
+  if (!target) throw new ApiError(404, 'NOT_FOUND', 'membership not found');
+  if (target.status === 'EXITED') throw new ApiError(409, 'STATE_CONFLICT', 'member has exited the fund');
+  if (target.role === 'admin') throw new ApiError(403, 'FORBIDDEN_ROLE', 'cannot change the admin role — use transfer-ownership');
+  if (String(target.userId) === actorId) throw new ApiError(403, 'FORBIDDEN_ROLE', 'cannot change your own role');
+
+  const previousRole = target.role;
+  if (previousRole === newRole) return { membershipId: targetMembershipId, role: newRole };
+
+  await Membership.updateOne({ _id: targetMembershipId }, { $set: { role: newRole } });
+
+  await AuditLog.create([{
+    fundId: new Types.ObjectId(fundId),
+    actorId: new Types.ObjectId(actorId),
+    action: 'ROLE_CHANGE',
+    refType: 'MEMBERSHIP',
+    refId: new Types.ObjectId(targetMembershipId),
+    before: { role: previousRole },
+    after: { role: newRole },
+  }]);
+
+  return { membershipId: targetMembershipId, role: newRole };
+}
+
+/**
+ * Transfer fund ownership (admin only). Old admin → member, target → admin.
+ * Target must be an active member of the fund.
+ */
+export async function transferOwnership(
+  actorId: string,
+  fundId: string,
+  targetMembershipId: string,
+) {
+  const actorMembership = await Membership.findOne({ fundId, userId: actorId });
+  if (!actorMembership || actorMembership.role !== 'admin') {
+    throw new ApiError(403, 'FORBIDDEN_ROLE', 'only the admin can transfer ownership');
+  }
+
+  const target = await Membership.findOne({ _id: targetMembershipId, fundId });
+  if (!target) throw new ApiError(404, 'NOT_FOUND', 'target membership not found');
+  if (target.status !== 'ACTIVE') throw new ApiError(409, 'STATE_CONFLICT', 'target member must be ACTIVE');
+  if (String(target.userId) === actorId) throw new ApiError(400, 'VALIDATION', 'cannot transfer ownership to yourself');
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await Membership.updateOne({ _id: actorMembership._id }, { $set: { role: 'member' } }, { session });
+      await Membership.updateOne({ _id: targetMembershipId }, { $set: { role: 'admin' } }, { session });
+
+      await AuditLog.create([{
+        fundId: new Types.ObjectId(fundId),
+        actorId: new Types.ObjectId(actorId),
+        action: 'OWNERSHIP_TRANSFER',
+        refType: 'MEMBERSHIP',
+        refId: new Types.ObjectId(targetMembershipId),
+        before: { adminMembershipId: String(actorMembership._id) },
+        after: { adminMembershipId: targetMembershipId },
+      }], { session });
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return { newAdminMembershipId: targetMembershipId };
 }
 
 /** Accept an invite → creates a PENDING_BUYIN membership for the caller. */

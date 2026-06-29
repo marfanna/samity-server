@@ -62,15 +62,26 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<AuthTokens> {
     if (!payload?.name || !payload?.passwordHash) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'registration data expired — start over');
     }
-    // guard the race: another verify may have created it
-    const existing = await User.findOne({ phone: input.phone, status: 'ACTIVE' });
-    const user =
-      existing ??
-      (await User.create({
+    // An INVITED ghost (placeholder from an imported fund's roster) is claimed here:
+    // upgrade it in place so its existing memberships transfer to the real account.
+    // Also guard the race where another verify already created/claimed it.
+    const existing = await User.findOne({ phone: input.phone, status: { $in: ['ACTIVE', 'INVITED'] } });
+    let user: UserDoc;
+    if (existing) {
+      if (existing.status === 'INVITED') {
+        existing.name = String(payload.name);
+        existing.passwordHash = String(payload.passwordHash);
+        existing.status = 'ACTIVE';
+        await existing.save();
+      }
+      user = existing;
+    } else {
+      user = await User.create({
         phone: input.phone,
         name: String(payload.name),
         passwordHash: String(payload.passwordHash),
-      }));
+      });
+    }
     return issueSession(user);
   }
 

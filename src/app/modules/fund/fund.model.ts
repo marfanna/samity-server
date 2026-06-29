@@ -21,6 +21,8 @@ export interface FundPolicy {
   inactivityDays: number;
 }
 
+export type FundOrigin = 'NEW' | 'IMPORTED';
+
 export interface FundDoc {
   _id: Types.ObjectId;
   name: string;
@@ -29,6 +31,8 @@ export interface FundDoc {
   createdBy: Types.ObjectId;
   successorUserId?: Types.ObjectId;
   status: FundStatus;
+  originType: FundOrigin; // IMPORTED = seeded from an existing samiti's opening balance
+  genesisAt?: Date; // when an imported fund's opening balance was recorded
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +61,8 @@ const fundSchema = new Schema<FundDoc>(
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     successorUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     status: { type: String, enum: ['ACTIVE', 'CLOSED'], default: 'ACTIVE' },
+    originType: { type: String, enum: ['NEW', 'IMPORTED'], default: 'NEW' },
+    genesisAt: { type: Date },
   },
   baseOpts,
 );

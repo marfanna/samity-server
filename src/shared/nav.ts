@@ -4,7 +4,7 @@ import { Investment } from '../app/modules/investment/investment.model';
 import { Fund } from '../app/modules/fund/fund.model';
 
 /** Ledger kinds that move fund cash. Dues/penalty/shares don't count toward NAV assets. */
-const CASH_KINDS = ['CASH_IN', 'CASH_OUT_INVEST', 'INVEST_RETURN', 'REVERSAL'] as const;
+const CASH_KINDS = ['CASH_IN', 'CASH_OUT_INVEST', 'INVEST_RETURN', 'REVERSAL', 'OPENING_CASH'] as const;
 
 export interface NavResult {
   nav: number; // integer paisa per share

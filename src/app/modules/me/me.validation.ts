@@ -11,3 +11,8 @@ export const updateMeSchema = z
   });
 
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
+
+export const fcmTokenSchema = z.object({
+  token: z.string().min(1),
+});
+export type FcmTokenInput = z.infer<typeof fcmTokenSchema>;

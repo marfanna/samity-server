@@ -100,7 +100,7 @@ export async function getMemberLedger(fundId: string, membershipId: string) {
 
   const [contributedAgg, entries] = await Promise.all([
     LedgerEntry.aggregate<{ total: number }>([
-      { $match: { fundId: fid(fundId), membershipId: fid(membershipId), kind: 'CASH_IN' } },
+      { $match: { fundId: fid(fundId), membershipId: fid(membershipId), kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]),
     LedgerEntry.find({ fundId: fid(fundId), membershipId: fid(membershipId) })

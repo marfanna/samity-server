@@ -8,6 +8,7 @@ import { User } from '../user/user.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
 import { withFundLock } from '../../../shared/fundLock';
+import { notifyUser } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
 import { Deposit, DepositStatus } from './deposit.model';
 import type { ListDepositsQuery, RejectDepositInput, SubmitDepositInput } from './deposit.validation';
@@ -185,6 +186,8 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
             nav: number;
           }
         | undefined;
+      let depositorUserId = '';
+      let depositAmountPaisa = 0;
 
       await session.withTransaction(async () => {
         const deposit = await Deposit.findOne({ _id: depositId, fundId }).session(session);
@@ -196,6 +199,8 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
         if (String(membership.userId) === actorId) {
           throw new ApiError(403, 'SELF_DEAL_BLOCKED', 'cannot verify your own deposit');
         }
+        depositorUserId = String(membership.userId);
+        depositAmountPaisa = deposit.amount;
 
         const before = {
           status: deposit.status,
@@ -342,6 +347,14 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
         };
       });
 
+      if (depositorUserId) {
+        void notifyUser(depositorUserId, {
+          type: 'DEPOSIT_VERIFIED',
+          title: 'Deposit verified',
+          body: `Your deposit of ৳${Math.round(depositAmountPaisa / 100)} has been approved.`,
+          fundId,
+        });
+      }
       return result!;
     } finally {
       await session.endSession();
@@ -370,6 +383,16 @@ export async function rejectDeposit(actorId: string, fundId: string, depositId: 
     before,
     after: { status: 'REJECTED', reason: input.reason },
   });
+
+  const membership = await Membership.findById(deposit.membershipId).lean();
+  if (membership) {
+    void notifyUser(String(membership.userId), {
+      type: 'DEPOSIT_REJECTED',
+      title: 'Deposit rejected',
+      body: input.reason ?? 'Your deposit could not be verified.',
+      fundId,
+    });
+  }
 
   return { depositId, status: 'REJECTED' as DepositStatus };
 }

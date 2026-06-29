@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authGuard } from '../../../middleware/authGuard';
 import { validateBody } from '../../../middleware/validate';
-import { updateMeSchema } from './me.validation';
+import { updateMeSchema, fcmTokenSchema } from './me.validation';
 import * as ctrl from './me.controller';
 
 const router = Router();
@@ -11,5 +11,7 @@ router.use(authGuard);
 router.get('/', ctrl.getMe);
 router.patch('/', validateBody(updateMeSchema), ctrl.updateMe);
 router.get('/funds', ctrl.getMyFunds);
+router.post('/fcm-token', validateBody(fcmTokenSchema), ctrl.registerFcmToken);
+router.delete('/fcm-token', validateBody(fcmTokenSchema), ctrl.deregisterFcmToken);
 
 export const meRoutes = router;

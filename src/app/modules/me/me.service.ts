@@ -1,6 +1,7 @@
 import { User } from '../user/user.model';
 import { Membership } from '../membership/membership.model';
 import { Fund } from '../fund/fund.model';
+import { LedgerEntry } from '../ledger/ledgerEntry.model';
 import { hashPassword } from '../../../shared/password';
 import { computeNav } from '../../../shared/nav';
 import { cyclesBehind } from '../../../shared/cycle';
@@ -25,6 +26,24 @@ export async function updateMe(userId: string, input: UpdateMeInput) {
   return { id: String(user._id), phone: user.phone, name: user.name, locale: user.locale };
 }
 
+/** Register a device FCM token (add if not already present, max 10 per user). */
+export async function registerFcmToken(userId: string, token: string) {
+  await User.updateOne(
+    { _id: userId },
+    { $addToSet: { fcmTokens: token } },
+  );
+  // Cap at 10 to avoid unbounded growth (old device tokens)
+  await User.updateOne(
+    { _id: userId, $expr: { $gt: [{ $size: '$fcmTokens' }, 10] } },
+    [{ $set: { fcmTokens: { $slice: ['$fcmTokens', -10] } } }],
+  );
+}
+
+/** Remove a FCM token (logout or token refresh). */
+export async function deregisterFcmToken(userId: string, token: string) {
+  await User.updateOne({ _id: userId }, { $pull: { fcmTokens: token } });
+}
+
 /** All memberships for the user, joined with fund headline fields. */
 export async function getMyFunds(userId: string) {
   const memberships = await Membership.find({ userId, status: { $ne: 'EXITED' } }).lean();
@@ -35,9 +54,13 @@ export async function getMyFunds(userId: string) {
   return Promise.all(
     memberships.map(async (m) => {
       const fund = fundById.get(String(m.fundId));
-      const [nav, memberCount] = await Promise.all([
+      const [nav, memberCount, contributedAgg] = await Promise.all([
         computeNav(m.fundId),
         Membership.countDocuments({ fundId: m.fundId, status: { $ne: 'EXITED' } }),
+        LedgerEntry.aggregate([
+          { $match: { fundId: m.fundId, membershipId: m._id, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } },
+        ]),
       ]);
 
       const behindCycles =
@@ -45,8 +68,11 @@ export async function getMyFunds(userId: string) {
           ? cyclesBehind(fund.policy.startDate, fund.policy.cycleUnit, m.paidThroughCycle)
           : 0;
 
+      const contributedPaisa = (contributedAgg[0] as { total?: number } | undefined)?.total ?? 0;
+
       return {
         fundId: String(m.fundId),
+        membershipId: String(m._id),
         name: fund?.name ?? '',
         cycleUnit: fund?.policy.cycleUnit ?? 'WEEKLY',
         faceValue: fund?.faceValue ?? 0,
@@ -54,6 +80,7 @@ export async function getMyFunds(userId: string) {
         totalShares: nav.totalShares,
         memberCount,
         myShares: m.shares,
+        contributedPaisa,
         role: m.role,
         status: m.status,
         behindCycles,

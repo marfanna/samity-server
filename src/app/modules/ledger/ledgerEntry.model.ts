@@ -10,10 +10,12 @@ export const LEDGER_KINDS = [
   'SHARES_TRANSFER',
   'PENALTY',
   'REVERSAL',
+  'OPENING_CASH', // imported fund: liquid cash on hand at genesis (counts as NAV cash)
+  'OPENING_CONTRIBUTION', // imported fund: per-member cost basis at genesis (display only, not cash)
 ] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
-export type LedgerRefType = 'DEPOSIT' | 'INVESTMENT' | 'TRANSFER' | 'CORRECTION' | 'POLICY';
+export type LedgerRefType = 'DEPOSIT' | 'INVESTMENT' | 'TRANSFER' | 'CORRECTION' | 'POLICY' | 'GENESIS';
 
 export interface LedgerEntryDoc {
   _id: Types.ObjectId;
@@ -42,7 +44,7 @@ const ledgerEntrySchema = new Schema<LedgerEntryDoc>(
     membershipId: { type: Schema.Types.ObjectId, ref: 'Membership' },
     fromMembershipId: { type: Schema.Types.ObjectId, ref: 'Membership' },
     toMembershipId: { type: Schema.Types.ObjectId, ref: 'Membership' },
-    refType: { type: String, enum: ['DEPOSIT', 'INVESTMENT', 'TRANSFER', 'CORRECTION', 'POLICY'] },
+    refType: { type: String, enum: ['DEPOSIT', 'INVESTMENT', 'TRANSFER', 'CORRECTION', 'POLICY', 'GENESIS'] },
     refId: { type: Schema.Types.ObjectId },
     reversalOf: { type: Schema.Types.ObjectId, ref: 'LedgerEntry' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

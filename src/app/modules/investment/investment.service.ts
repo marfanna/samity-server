@@ -4,6 +4,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
 import { withFundLock } from '../../../shared/fundLock';
+import { notifyFundMembers } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
 import { Investment } from './investment.model';
 import type { RecordInvestmentInput, RecordReturnInput } from './investment.validation';
@@ -85,6 +86,12 @@ export async function recordInvestment(actorId: string, fundId: string, input: R
         result = { investmentId: String(investment!._id), nav: nav.nav };
       });
 
+      notifyFundMembers(fundId, actorId, {
+        type: 'INVESTMENT_RECORDED',
+        title: 'New investment recorded',
+        body: `৳${Math.round(input.amountCost / 100)} invested in ${input.destination}.`,
+        fundId,
+      });
       return result;
     } finally {
       await session.endSession();
@@ -174,6 +181,12 @@ export async function recordReturn(actorId: string, fundId: string, investmentId
         result = { investmentId, profitLoss, nav: nav.nav };
       });
 
+      notifyFundMembers(fundId, actorId, {
+        type: 'INVESTMENT_RETURNED',
+        title: 'Investment returned',
+        body: `NAV updated to ৳${(result.nav / 100).toFixed(2)} after return.`,
+        fundId,
+      });
       return result;
     } finally {
       await session.endSession();

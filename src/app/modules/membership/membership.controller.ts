@@ -37,3 +37,22 @@ export const acceptInvite = catchAsync(async (req: Request, res: Response) => {
   const result = await svc.acceptInvite(req.userId!, req.params.token!);
   sendResponse(res, httpStatus.OK, result);
 });
+
+export const changeMemberRole = catchAsync(async (req: Request, res: Response) => {
+  const result = await svc.changeMemberRole(
+    req.userId!,
+    req.params.fundId!,
+    req.params.membershipId!,
+    req.body.role,
+  );
+  sendResponse(res, httpStatus.OK, result);
+});
+
+export const transferOwnership = catchAsync(async (req: Request, res: Response) => {
+  const result = await svc.transferOwnership(
+    req.userId!,
+    req.params.fundId!,
+    req.body.membershipId,
+  );
+  sendResponse(res, httpStatus.OK, result);
+});

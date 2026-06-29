@@ -9,13 +9,19 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { AuditLog } from '../audit/auditLog.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
+import { currentCycleIndex } from '../../../shared/cycle';
 import { ApiError } from '../../../utils/ApiError';
-import type { CreateFundInput } from './fund.validation';
+import type { CreateFundInput, ImportFundInput, UpdateFundInput } from './fund.validation';
 
 export interface CreateFundResult {
   fundId: string;
   membershipId: string;
   nav: number;
+}
+
+export interface ImportFundResult extends CreateFundResult {
+  memberCount: number;
+  invitedCount: number; // placeholder ghosts created (members not yet on the app)
 }
 
 /**
@@ -160,12 +166,310 @@ export async function createFund(userId: string, input: CreateFundInput): Promis
   }
 }
 
+/**
+ * Import an already-running samiti as an opening balance (Phase 15).
+ *
+ * No historical replay — we seed today's state so the derived engine is correct from day one:
+ *  - shares per member  → SHARES_ISSUED (totalShares)
+ *  - liquid cash on hand → OPENING_CASH (NAV cash; net of money already invested)
+ *  - active investments  → Investment docs (investedAtCost) — NO CASH_OUT_INVEST
+ *  - dues arrears        → paidThroughCycle = currentCycle − cyclesBehind (per member)
+ *  - cost basis          → OPENING_CONTRIBUTION (display-only) = paidThroughCycle × shares × faceValue
+ *
+ * Roster members not yet on the app become INVITED ghost users; they claim by registering
+ * with that phone (auth.verifyOtp upgrades the ghost → ACTIVE, inheriting this membership).
+ */
+export async function importFund(userId: string, input: ImportFundInput): Promise<ImportFundResult> {
+  const caller = await User.findById(userId).lean();
+  if (!caller) throw new ApiError(404, 'NOT_FOUND', 'account not found');
+
+  // Resolve optional successor by phone (may be unregistered → ignored).
+  let successorUserId: Types.ObjectId | undefined;
+  if (input.successorPhone) {
+    const successor = await User.findOne({ phone: input.successorPhone, status: 'ACTIVE' }).lean();
+    if (successor) successorUserId = successor._id;
+  }
+
+  const startDate = input.policy.startDate;
+  const cycleUnit = input.policy.cycleUnit;
+  const currentCycle = currentCycleIndex(startDate, cycleUnit);
+  const paidThrough = (cyclesBehindNow: number) => Math.max(0, currentCycle - cyclesBehindNow);
+
+  // Dedupe roster by phone, drop anyone matching the caller (admin is added separately).
+  const seenPhones = new Set<string>([caller.phone]);
+  const roster = input.members.filter((m) => {
+    if (seenPhones.has(m.phone)) return false;
+    seenPhones.add(m.phone);
+    return true;
+  });
+
+  const session = await mongoose.startSession();
+  try {
+    let result!: ImportFundResult;
+
+    await session.withTransaction(async () => {
+      const genesisAt = new Date();
+      const [fund] = await Fund.create(
+        [
+          {
+            name: input.name,
+            faceValue: input.faceValue,
+            policy: input.policy,
+            createdBy: new Types.ObjectId(userId),
+            originType: 'IMPORTED',
+            genesisAt,
+            ...(successorUserId ? { successorUserId } : {}),
+          },
+        ],
+        { session },
+      );
+      const fundId = fund!._id;
+
+      // Seed one member: SHARES_ISSUED + OPENING_CONTRIBUTION (cost basis at genesis).
+      const seedMember = async (membershipId: Types.ObjectId, shares: number, paidThroughCycle: number) => {
+        await appendLedger(
+          { fundId, kind: 'SHARES_ISSUED', shares, membershipId, refType: 'GENESIS', createdBy: userId },
+          session,
+        );
+        const contribution = paidThroughCycle * shares * input.faceValue;
+        if (contribution > 0) {
+          await appendLedger(
+            {
+              fundId,
+              kind: 'OPENING_CONTRIBUTION',
+              amount: contribution,
+              membershipId,
+              refType: 'GENESIS',
+              createdBy: userId,
+            },
+            session,
+          );
+        }
+      };
+
+      // Admin membership (the caller).
+      const adminPaidThrough = paidThrough(input.adminCyclesBehind);
+      const [adminMembership] = await Membership.create(
+        [
+          {
+            userId: new Types.ObjectId(userId),
+            fundId,
+            role: 'admin',
+            status: 'ACTIVE',
+            shares: input.adminShares,
+            joinNav: input.faceValue,
+            joinCycle: 0,
+            paidThroughCycle: adminPaidThrough,
+          },
+        ],
+        { session },
+      );
+      await seedMember(adminMembership!._id, input.adminShares, adminPaidThrough);
+
+      // Roster members: link to an existing ACTIVE account, else create an INVITED ghost.
+      let invitedCount = 0;
+      for (const m of roster) {
+        let memberUser = await User.findOne({
+          phone: m.phone,
+          status: { $in: ['ACTIVE', 'INVITED'] },
+        }).session(session);
+
+        if (!memberUser) {
+          const [ghost] = await User.create(
+            [{ phone: m.phone, name: m.name, passwordHash: '!', status: 'INVITED' }],
+            { session },
+          );
+          memberUser = ghost!;
+          invitedCount += 1;
+        } else if (memberUser.status === 'INVITED') {
+          invitedCount += 1;
+        }
+
+        const memberPaidThrough = paidThrough(m.cyclesBehind);
+        const [membership] = await Membership.create(
+          [
+            {
+              userId: memberUser._id,
+              fundId,
+              role: 'member',
+              status: 'ACTIVE',
+              shares: m.shares,
+              joinNav: input.faceValue,
+              joinCycle: 0,
+              paidThroughCycle: memberPaidThrough,
+            },
+          ],
+          { session },
+        );
+        await seedMember(membership!._id, m.shares, memberPaidThrough);
+      }
+
+      // Fund liquid cash on hand (already net of money out in investments).
+      if (input.openingCashPaisa > 0) {
+        await appendLedger(
+          {
+            fundId,
+            kind: 'OPENING_CASH',
+            amount: input.openingCashPaisa,
+            refType: 'GENESIS',
+            createdBy: userId,
+          },
+          session,
+        );
+      }
+
+      // Active investments — counted via investedAtCost; no CASH_OUT_INVEST (cash already excludes them).
+      if (input.investments.length > 0) {
+        await Investment.create(
+          input.investments.map((inv) => ({
+            fundId,
+            amountCost: inv.amountCost,
+            destination: inv.destination,
+            expectedReturn: inv.expectedReturn,
+            ...(inv.expectedDate ? { expectedDate: inv.expectedDate } : {}),
+            state: 'ACTIVE',
+            recordedBy: new Types.ObjectId(userId),
+          })),
+          { session },
+        );
+      }
+
+      const nav = await computeNav(fundId, session);
+      await NavSnapshot.create(
+        [
+          {
+            fundId,
+            nav: nav.nav,
+            totalShares: nav.totalShares,
+            totalAssets: nav.totalAssets,
+            cash: nav.cash,
+            investedAtCost: nav.investedAtCost,
+            reason: 'INIT',
+          },
+        ],
+        { session },
+      );
+
+      await AuditLog.create(
+        [
+          {
+            fundId,
+            actorId: new Types.ObjectId(userId),
+            action: 'FUND_IMPORT',
+            refType: 'FUND',
+            refId: fundId,
+            after: {
+              name: input.name,
+              faceValue: input.faceValue,
+              startDate,
+              currentCycle,
+              memberCount: roster.length + 1,
+              invitedCount,
+              openingCashPaisa: input.openingCashPaisa,
+              investments: input.investments.length,
+              nav: nav.nav,
+            },
+          },
+        ],
+        { session },
+      );
+
+      result = {
+        fundId: String(fundId),
+        membershipId: String(adminMembership!._id),
+        nav: nav.nav,
+        memberCount: roster.length + 1,
+        invitedCount,
+      };
+    });
+
+    return result;
+  } finally {
+    await session.endSession();
+  }
+}
+
+/** Update editable fund settings (admin only). cycleUnit + startDate are immutable. */
+export async function updateFundSettings(fundId: string, actorId: string, input: UpdateFundInput) {
+  const fund = await Fund.findById(fundId).lean();
+  if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+  if (fund.status !== 'ACTIVE') throw new ApiError(409, 'FUND_CLOSED', 'fund is closed');
+
+  const policyPatch: Record<string, unknown> = {};
+  const topPatch: Record<string, unknown> = {};
+
+  if (input.name !== undefined) topPatch['name'] = input.name;
+  if (input.visibility !== undefined) policyPatch['policy.visibility'] = input.visibility;
+  if (input.shareChange !== undefined) policyPatch['policy.shareChange'] = input.shareChange;
+  if (input.nonPayment !== undefined) policyPatch['policy.nonPayment'] = input.nonPayment;
+  if (input.joinLock !== undefined) policyPatch['policy.joinLock'] = input.joinLock;
+  if (input.graceCycles !== undefined) policyPatch['policy.graceCycles'] = input.graceCycles;
+  if (input.penaltyPaisa !== undefined) policyPatch['policy.penaltyPaisa'] = input.penaltyPaisa;
+  if (input.suspendAfterMisses !== undefined) policyPatch['policy.suspendAfterMisses'] = input.suspendAfterMisses;
+  if (input.inactivityDays !== undefined) policyPatch['policy.inactivityDays'] = input.inactivityDays;
+
+  const patch = { ...topPatch, ...policyPatch };
+  if (Object.keys(patch).length === 0) return { updated: false };
+
+  await Fund.updateOne({ _id: fundId }, { $set: patch });
+
+  await AuditLog.create([{
+    fundId: new Types.ObjectId(fundId),
+    actorId: new Types.ObjectId(actorId),
+    action: 'FUND_SETTINGS_UPDATE',
+    refType: 'FUND',
+    refId: new Types.ObjectId(fundId),
+    after: patch,
+  }]);
+
+  return { updated: true };
+}
+
+/** Close a fund (admin only). Requires no active investments. Irreversible. */
+export async function closeFund(fundId: string, actorId: string) {
+  const fund = await Fund.findById(fundId).lean();
+  if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+  if (fund.status === 'CLOSED') throw new ApiError(409, 'ALREADY_CLOSED', 'fund is already closed');
+
+  const activeInvestments = await Investment.countDocuments({ fundId, state: 'ACTIVE' });
+  if (activeInvestments > 0) {
+    throw new ApiError(409, 'ACTIVE_INVESTMENTS', 'close all active investments before closing the fund');
+  }
+
+  await Fund.updateOne({ _id: fundId }, { $set: { status: 'CLOSED' } });
+
+  await AuditLog.create([{
+    fundId: new Types.ObjectId(fundId),
+    actorId: new Types.ObjectId(actorId),
+    action: 'FUND_CLOSE',
+    refType: 'FUND',
+    refId: new Types.ObjectId(fundId),
+    after: { status: 'CLOSED' },
+  }]);
+
+  return { closed: true };
+}
+
 /** Current derived NAV for a fund (member+). */
 export async function getNav(fundId: string) {
   const fund = await Fund.findById(fundId).lean();
   if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
   const nav = await computeNav(fundId);
   return { ...nav, at: new Date().toISOString() };
+}
+
+/** NAV history for the chart. Returns up to `limit` snapshots oldest→newest. */
+export async function getNavHistory(fundId: string, limit = 30) {
+  const fund = await Fund.findById(fundId).lean();
+  if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+
+  const snapshots = await NavSnapshot.find({ fundId })
+    .sort({ at: -1 })
+    .limit(limit)
+    .lean();
+
+  // Reverse so chart renders oldest-first (left→right)
+  return snapshots.reverse().map((s) => ({ nav: s.nav, at: s.at.toISOString() }));
 }
 
 /**
