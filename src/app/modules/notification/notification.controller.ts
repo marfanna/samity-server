@@ -16,7 +16,3 @@ export const markRead = catchAsync(async (req: Request, res: Response) => {
   const ids: string[] = req.body.ids ?? [];
   sendResponse(res, httpStatus.OK, await svc.markRead(req.userId!, ids));
 });
-
-export const getUnreadCount = catchAsync(async (req: Request, res: Response) => {
-  sendResponse(res, httpStatus.OK, await svc.unreadCount(req.userId!));
-});

@@ -7,7 +7,6 @@ const router = Router();
 router.use(authGuard);
 
 router.get('/', ctrl.listNotifications);
-router.get('/unread-count', ctrl.getUnreadCount);
 router.patch('/read-all', ctrl.markAllRead);
 router.patch('/read', ctrl.markRead);
 

@@ -10,6 +10,7 @@ router.use(authGuard);
 
 router.get('/', ctrl.getMe);
 router.patch('/', validateBody(updateMeSchema), ctrl.updateMe);
+router.delete('/', ctrl.deleteMe);
 router.get('/funds', ctrl.getMyFunds);
 router.post('/fcm-token', validateBody(fcmTokenSchema), ctrl.registerFcmToken);
 router.delete('/fcm-token', validateBody(fcmTokenSchema), ctrl.deregisterFcmToken);

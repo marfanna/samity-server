@@ -69,6 +69,14 @@ export const importFundSchema = z.object({
 export type ImportFundInput = z.infer<typeof importFundSchema>;
 export type ImportMemberInput = z.infer<typeof importMemberSchema>;
 
+const bankDetailsSchema = z.object({
+  accountName: z.string().trim().max(120).optional(),
+  accountNumber: z.string().trim().max(60).optional(),
+  bankName: z.string().trim().max(80).optional(),
+  branch: z.string().trim().max(80).optional(),
+  instructions: z.string().trim().max(300).optional(),
+});
+
 // Editable policy fields only — cycleUnit + startDate are immutable after creation
 export const updateFundSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
@@ -80,6 +88,7 @@ export const updateFundSchema = z.object({
   penaltyPaisa: z.number().int().min(0).optional(),
   suspendAfterMisses: z.number().int().min(0).optional(),
   inactivityDays: z.number().int().min(1).optional(),
+  bankDetails: bankDetailsSchema.optional(),
 });
 
 export type UpdateFundInput = z.infer<typeof updateFundSchema>;

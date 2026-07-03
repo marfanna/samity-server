@@ -399,6 +399,7 @@ export async function updateFundSettings(fundId: string, actorId: string, input:
   const topPatch: Record<string, unknown> = {};
 
   if (input.name !== undefined) topPatch['name'] = input.name;
+  if (input.bankDetails !== undefined) topPatch['bankDetails'] = input.bankDetails;
   if (input.visibility !== undefined) policyPatch['policy.visibility'] = input.visibility;
   if (input.shareChange !== undefined) policyPatch['policy.shareChange'] = input.shareChange;
   if (input.nonPayment !== undefined) policyPatch['policy.nonPayment'] = input.nonPayment;

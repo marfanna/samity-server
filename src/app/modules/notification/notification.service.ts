@@ -37,12 +37,3 @@ export async function markRead(userId: string, ids: string[]) {
   );
   return { updated: result.modifiedCount };
 }
-
-/** Unread count for the bell badge. */
-export async function unreadCount(userId: string) {
-  const count = await Notification.countDocuments({
-    userId: new Types.ObjectId(userId),
-    read: false,
-  });
-  return { count };
-}

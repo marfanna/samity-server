@@ -27,6 +27,13 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     statusCode = 409;
     code = 'DUPLICATE';
     message = 'resource already exists';
+  } else if (err instanceof Error && err.name === 'MulterError') {
+    statusCode = 400;
+    code = 'VALIDATION_ERROR';
+    message =
+      (err as { code?: string }).code === 'LIMIT_FILE_SIZE'
+        ? 'image must be 5 MB or smaller'
+        : 'file upload failed';
   }
 
   if (statusCode >= 500) {

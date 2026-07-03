@@ -2,6 +2,7 @@ import { User } from '../user/user.model';
 import { Membership } from '../membership/membership.model';
 import { Fund } from '../fund/fund.model';
 import { LedgerEntry } from '../ledger/ledgerEntry.model';
+import { RefreshToken } from '../_infra/refreshToken.model';
 import { hashPassword } from '../../../shared/password';
 import { computeNav } from '../../../shared/nav';
 import { cyclesBehind } from '../../../shared/cycle';
@@ -24,6 +25,38 @@ export async function updateMe(userId: string, input: UpdateMeInput) {
   await user.save();
 
   return { id: String(user._id), phone: user.phone, name: user.name, locale: user.locale };
+}
+
+/**
+ * Soft-delete the account (status → DELETED) and kill all sessions.
+ * Fund records/ledger are retained for audit. Blocked while the user is the admin of any
+ * ACTIVE fund — they must transfer ownership or close those funds first.
+ */
+export async function deleteAccount(userId: string) {
+  const user = await User.findOne({ _id: userId, status: 'ACTIVE' });
+  if (!user) throw new ApiError(404, 'NOT_FOUND', 'account not found');
+
+  const adminFunds = await Membership.find({ userId, role: 'admin', status: { $ne: 'EXITED' } }).lean();
+  if (adminFunds.length > 0) {
+    const activeAdmin = await Fund.countDocuments({
+      _id: { $in: adminFunds.map((m) => m.fundId) },
+      status: 'ACTIVE',
+    });
+    if (activeAdmin > 0) {
+      throw new ApiError(
+        409,
+        'ADMIN_OF_ACTIVE_FUND',
+        'transfer ownership or close your funds before deleting your account',
+      );
+    }
+  }
+
+  user.status = 'DELETED';
+  user.fcmTokens = [];
+  await user.save();
+  await RefreshToken.deleteMany({ userId: user._id });
+
+  return { deleted: true };
 }
 
 /** Register a device FCM token (add if not already present, max 10 per user). */
@@ -84,6 +117,7 @@ export async function getMyFunds(userId: string) {
         role: m.role,
         status: m.status,
         behindCycles,
+        bankDetails: fund?.bankDetails ?? null,
         startDate: fund?.policy.startDate ?? null,
         visibility: fund?.policy.visibility ?? 'INVITE_ONLY',
         shareChange: fund?.policy.shareChange ?? 'FIXED',

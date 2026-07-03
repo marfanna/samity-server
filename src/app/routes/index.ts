@@ -5,6 +5,7 @@ import { meRoutes } from '../modules/me/me.routes';
 import { fundRoutes } from '../modules/fund/fund.routes';
 import { inviteRoutes } from '../modules/membership/invite.routes';
 import { notificationRoutes } from '../modules/notification/notification.routes';
+import { uploadRoutes } from '../modules/upload/upload.routes';
 
 const router = Router();
 
@@ -13,6 +14,7 @@ router.use('/me', meRoutes);
 router.use('/funds', fundRoutes);
 router.use('/invites', inviteRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/uploads', uploadRoutes);
 
 // More fund-scoped routers (deposits, investments, transfers, …) mount here in Phase 07+.
 

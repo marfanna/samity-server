@@ -16,6 +16,10 @@ export const getMyFunds = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, httpStatus.OK, await meService.getMyFunds(req.userId!));
 });
 
+export const deleteMe = catchAsync(async (req: Request, res: Response) => {
+  sendResponse(res, httpStatus.OK, await meService.deleteAccount(req.userId!));
+});
+
 export const registerFcmToken = catchAsync(async (req: Request, res: Response) => {
   await meService.registerFcmToken(req.userId!, req.body.token);
   sendResponse(res, httpStatus.OK, { registered: true });
