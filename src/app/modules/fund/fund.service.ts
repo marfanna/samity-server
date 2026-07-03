@@ -405,6 +405,7 @@ export async function updateFundSettings(fundId: string, actorId: string, input:
   if (input.shareChange !== undefined) policyPatch['policy.shareChange'] = input.shareChange;
   if (input.nonPayment !== undefined) policyPatch['policy.nonPayment'] = input.nonPayment;
   if (input.joinLock !== undefined) policyPatch['policy.joinLock'] = input.joinLock;
+  if (input.collectionWeekday !== undefined) policyPatch['policy.collectionWeekday'] = input.collectionWeekday;
   if (input.graceCycles !== undefined) policyPatch['policy.graceCycles'] = input.graceCycles;
   if (input.penaltyPaisa !== undefined) policyPatch['policy.penaltyPaisa'] = input.penaltyPaisa;
   if (input.suspendAfterMisses !== undefined) policyPatch['policy.suspendAfterMisses'] = input.suspendAfterMisses;
@@ -503,7 +504,7 @@ export async function getNav(fundId: string) {
   return { ...nav, at: new Date().toISOString() };
 }
 
-/** NAV history for the chart. Returns up to `limit` snapshots oldest→newest. */
+/** Pool history for the chart — total assets over time. Up to `limit` snapshots oldest→newest. */
 export async function getNavHistory(fundId: string, limit = 30) {
   const fund = await Fund.findById(fundId).lean();
   if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
@@ -513,8 +514,8 @@ export async function getNavHistory(fundId: string, limit = 30) {
     .limit(limit)
     .lean();
 
-  // Reverse so chart renders oldest-first (left→right)
-  return snapshots.reverse().map((s) => ({ nav: s.nav, at: s.at.toISOString() }));
+  // Reverse so chart renders oldest-first (left→right). Value = pool (total assets).
+  return snapshots.reverse().map((s) => ({ nav: s.totalAssets, at: s.at.toISOString() }));
 }
 
 /**

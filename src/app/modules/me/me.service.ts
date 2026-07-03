@@ -87,21 +87,38 @@ export async function getMyFunds(userId: string) {
   return Promise.all(
     memberships.map(async (m) => {
       const fund = fundById.get(String(m.fundId));
-      const [nav, memberCount, contributedAgg] = await Promise.all([
+      const [nav, memberCount, contributedAgg, fundContribAgg] = await Promise.all([
         computeNav(m.fundId),
         Membership.countDocuments({ fundId: m.fundId, status: { $ne: 'EXITED' } }),
         LedgerEntry.aggregate([
           { $match: { fundId: m.fundId, membershipId: m._id, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
           { $group: { _id: null, total: { $sum: '$amount' } } },
         ]),
+        LedgerEntry.aggregate([
+          { $match: { fundId: m.fundId, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
+          { $group: { _id: null, total: { $sum: '$amount' } } },
+        ]),
       ]);
 
       const behindCycles =
         fund && m.status === 'ACTIVE' && m.shares > 0
-          ? cyclesBehind(fund.policy.startDate, fund.policy.cycleUnit, m.paidThroughCycle)
+          ? cyclesBehind(
+              fund.policy.startDate,
+              fund.policy.cycleUnit,
+              m.paidThroughCycle,
+              new Date(),
+              fund.policy.collectionWeekday,
+            )
           : 0;
 
       const contributedPaisa = (contributedAgg[0] as { total?: number } | undefined)?.total ?? 0;
+      // Value = my contributed principal + my share of fund profit, split by money paid
+      // (paid-up members only). Profit = total assets − total contributed. Zero until invested.
+      const fundContributed = (fundContribAgg[0] as { total?: number } | undefined)?.total ?? 0;
+      const profit = nav.totalAssets - fundContributed;
+      const myProfitPaisa =
+        fundContributed > 0 ? Math.round((contributedPaisa / fundContributed) * profit) : 0;
+      const valuePaisa = contributedPaisa + myProfitPaisa;
 
       return {
         fundId: String(m.fundId),
@@ -114,6 +131,10 @@ export async function getMyFunds(userId: string) {
         memberCount,
         myShares: m.shares,
         contributedPaisa,
+        valuePaisa,
+        profitPaisa: myProfitPaisa,
+        poolPaisa: nav.totalAssets,
+        fundProfitPaisa: profit,
         role: m.role,
         status: m.status,
         fundStatus: fund?.status ?? 'ACTIVE',

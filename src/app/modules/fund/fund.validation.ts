@@ -3,6 +3,8 @@ import { z } from 'zod';
 const policySchema = z.object({
   cycleUnit: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
   startDate: z.coerce.date(),
+  collectionWeekday: z.number().int().min(1).max(7).optional(), // WEEKLY only: 1=Mon…7=Sun
+
   visibility: z.enum(['PUBLIC', 'INVITE_ONLY']).default('INVITE_ONLY'),
   shareChange: z.enum(['FIXED', 'BUY_AT_NAV', 'BOTH']).default('FIXED'),
   nonPayment: z.enum(['TRACK_ONLY', 'PENALTY', 'AUTO_SUSPEND']).default('TRACK_ONLY'),
@@ -88,6 +90,7 @@ export const updateFundSchema = z.object({
   penaltyPaisa: z.number().int().min(0).optional(),
   suspendAfterMisses: z.number().int().min(0).optional(),
   inactivityDays: z.number().int().min(1).optional(),
+  collectionWeekday: z.number().int().min(1).max(7).optional(),
   bankDetails: bankDetailsSchema.optional(),
 });
 

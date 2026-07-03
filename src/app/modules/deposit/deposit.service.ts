@@ -7,6 +7,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { User } from '../user/user.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
+import { presignedUrl } from '../../../shared/storage';
 import { withFundLock } from '../../../shared/fundLock';
 import { notifyUser } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
@@ -22,6 +23,7 @@ type DepositListItem = {
   cyclesCovered: number;
   sharesRequested: number;
   screenshotUrl: string;
+  screenshotViewUrl?: string;
   status: DepositStatus;
   reason?: string;
   createdAt: Date;
@@ -134,9 +136,12 @@ export async function listDeposits(fundId: string, query: ListDepositsQuery): Pr
   const membershipById = new Map(memberships.map((m) => [String(m._id), m]));
   const nameById = new Map(users.map((u) => [String(u._id), u.name]));
 
-  return deposits.map((deposit) => {
+  return Promise.all(deposits.map(async (deposit) => {
     const membership = membershipById.get(String(deposit.membershipId));
     const reason = deposit.reason;
+    const screenshotViewUrl = deposit.screenshotUrl === 'FOUNDING'
+      ? undefined
+      : await presignedUrl(deposit.screenshotUrl);
     return {
       depositId: String(deposit._id),
       membershipId: String(deposit.membershipId),
@@ -146,17 +151,21 @@ export async function listDeposits(fundId: string, query: ListDepositsQuery): Pr
       cyclesCovered: deposit.cyclesCovered,
       sharesRequested: deposit.sharesRequested,
       screenshotUrl: deposit.screenshotUrl,
+      ...(screenshotViewUrl ? { screenshotViewUrl } : {}),
       status: deposit.status,
       ...(reason ? { reason } : {}),
       createdAt: deposit.createdAt,
     };
-  });
+  }));
 }
 
 export async function listMyDeposits(fundId: string, membershipId: string): Promise<DepositListItem[]> {
   const deposits = await Deposit.find({ fundId, membershipId }).sort({ createdAt: -1 }).lean();
-  return deposits.map((deposit) => {
+  return Promise.all(deposits.map(async (deposit) => {
     const reason = deposit.reason;
+    const screenshotViewUrl = deposit.screenshotUrl === 'FOUNDING'
+      ? undefined
+      : await presignedUrl(deposit.screenshotUrl);
     return {
       depositId: String(deposit._id),
       membershipId: String(deposit.membershipId),
@@ -166,11 +175,12 @@ export async function listMyDeposits(fundId: string, membershipId: string): Prom
       cyclesCovered: deposit.cyclesCovered,
       sharesRequested: deposit.sharesRequested,
       screenshotUrl: deposit.screenshotUrl,
+      ...(screenshotViewUrl ? { screenshotViewUrl } : {}),
       status: deposit.status,
       ...(reason ? { reason } : {}),
       createdAt: deposit.createdAt,
     };
-  });
+  }));
 }
 
 export async function verifyDeposit(actorId: string, fundId: string, depositId: string) {

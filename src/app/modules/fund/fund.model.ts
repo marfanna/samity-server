@@ -11,6 +11,7 @@ export type FundStatus = 'ACTIVE' | 'CLOSED';
 export interface FundPolicy {
   cycleUnit: CycleUnit;
   startDate: Date; // cycle 0 anchor (Asia/Dhaka)
+  collectionWeekday?: number; // WEEKLY only: 1=Mon … 7=Sun. Cycle rolls over + reminder fires here.
   visibility: Visibility;
   shareChange: ShareChange;
   nonPayment: NonPayment;
@@ -51,6 +52,7 @@ const fundPolicySchema = new Schema<FundPolicy>(
   {
     cycleUnit: { type: String, enum: ['DAILY', 'WEEKLY', 'MONTHLY'], required: true },
     startDate: { type: Date, required: true },
+    collectionWeekday: { type: Number, min: 1, max: 7 },
     visibility: { type: String, enum: ['PUBLIC', 'INVITE_ONLY'], default: 'INVITE_ONLY' },
     shareChange: { type: String, enum: ['FIXED', 'BUY_AT_NAV', 'BOTH'], default: 'FIXED' },
     nonPayment: { type: String, enum: ['TRACK_ONLY', 'PENALTY', 'AUTO_SUSPEND'], default: 'TRACK_ONLY' },
