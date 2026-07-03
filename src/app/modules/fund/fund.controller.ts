@@ -34,6 +34,11 @@ export const closeFund = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, httpStatus.OK, data);
 });
 
+export const deleteFund = catchAsync(async (req: Request, res: Response) => {
+  const data = await fundService.deleteFund(req.params.fundId!, req.userId!);
+  sendResponse(res, httpStatus.OK, data);
+});
+
 export const getNavHistory = catchAsync(async (req: Request, res: Response) => {
   const limit = req.query.limit ? Number(req.query.limit) : 30;
   const data = await fundService.getNavHistory(req.params.fundId!, limit);

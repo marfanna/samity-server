@@ -77,7 +77,7 @@ export async function deregisterFcmToken(userId: string, token: string) {
   await User.updateOne({ _id: userId }, { $pull: { fcmTokens: token } });
 }
 
-/** All memberships for the user, joined with fund headline fields. */
+/** All memberships for the user, joined with fund headline fields (closed funds included). */
 export async function getMyFunds(userId: string) {
   const memberships = await Membership.find({ userId, status: { $ne: 'EXITED' } }).lean();
   const fundIds = memberships.map((m) => m.fundId);
@@ -116,6 +116,7 @@ export async function getMyFunds(userId: string) {
         contributedPaisa,
         role: m.role,
         status: m.status,
+        fundStatus: fund?.status ?? 'ACTIVE',
         behindCycles,
         bankDetails: fund?.bankDetails ?? null,
         startDate: fund?.policy.startDate ?? null,

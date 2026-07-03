@@ -23,14 +23,18 @@ const schema = z.object({
 
   CORS_ORIGIN: z.string().default('*'),
 
-  // Object storage (S3-compatible: AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO)
+  // File storage. 'local' = this server's own disk (Hostinger VPS); 's3' = S3-compatible bucket.
   STORAGE_ENABLED: boolFromEnv.default(false),
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  STORAGE_URL_BASE: z.string().url().optional(),       // public base URL for stored files
+  // local driver
+  UPLOAD_DIR: z.string().default('uploads'),           // disk path (relative to cwd or absolute)
+  // s3 driver
   STORAGE_ENDPOINT: z.string().url().optional(),       // omit for AWS; set for R2/Spaces/MinIO
   STORAGE_REGION: z.string().default('auto'),
   STORAGE_BUCKET: z.string().optional(),
   STORAGE_ACCESS_KEY: z.string().optional(),
   STORAGE_SECRET_KEY: z.string().optional(),
-  STORAGE_URL_BASE: z.string().url().optional(),       // public CDN base URL for files
 
   // Firebase Cloud Messaging (Phase 14)
   // Base64-encode the service account JSON: base64 < service-account.json | tr -d '\n'

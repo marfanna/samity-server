@@ -4,15 +4,14 @@ import { authGuard } from '../../../middleware/authGuard';
 import { ApiError } from '../../../utils/ApiError';
 import * as ctrl from './upload.controller';
 
-const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
-
-// In-memory (buffer) storage — files are streamed straight to object storage, never to disk.
+// In-memory (buffer) storage — the buffer is re-encoded to WebP by the service, never hits disk raw.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB raw input (WebP output is far smaller)
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED.includes(file.mimetype)) return cb(null, true);
-    cb(new ApiError(400, 'VALIDATION_ERROR', 'only JPEG/PNG/WebP/HEIC images allowed'));
+    // Accept any image type; sharp does the real format validation on decode.
+    if (file.mimetype.startsWith('image/')) return cb(null, true);
+    cb(new ApiError(400, 'VALIDATION_ERROR', 'only image files are allowed'));
   },
 });
 

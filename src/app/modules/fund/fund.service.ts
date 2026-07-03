@@ -7,6 +7,7 @@ import { User } from '../user/user.model';
 import { getMembers } from '../membership/membership.service';
 import { NavSnapshot } from '../nav/navSnapshot.model';
 import { AuditLog } from '../audit/auditLog.model';
+import { LedgerEntry } from '../ledger/ledgerEntry.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
 import { currentCycleIndex } from '../../../shared/cycle';
@@ -449,6 +450,49 @@ export async function closeFund(fundId: string, actorId: string) {
   }]);
 
   return { closed: true };
+}
+
+/**
+ * Permanently delete a fund and all its records (admin only).
+ * Guarded: allowed only when the admin is the SOLE member — no one else has money in it.
+ * Irreversible. For funds with other members, close it instead.
+ */
+export async function deleteFund(fundId: string, actorId: string) {
+  const fund = await Fund.findById(fundId).lean();
+  if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+
+  const otherMembers = await Membership.countDocuments({
+    fundId,
+    status: { $ne: 'EXITED' },
+    userId: { $ne: new Types.ObjectId(actorId) },
+  });
+  if (otherMembers > 0) {
+    throw new ApiError(
+      409,
+      'HAS_OTHER_MEMBERS',
+      'cannot delete a fund with other members — remove them or close the fund instead',
+    );
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const fid = new Types.ObjectId(fundId);
+      await Promise.all([
+        Fund.deleteOne({ _id: fid }).session(session),
+        Membership.deleteMany({ fundId: fid }).session(session),
+        LedgerEntry.deleteMany({ fundId: fid }).session(session),
+        NavSnapshot.deleteMany({ fundId: fid }).session(session),
+        Deposit.deleteMany({ fundId: fid }).session(session),
+        Investment.deleteMany({ fundId: fid }).session(session),
+        AuditLog.deleteMany({ fundId: fid }).session(session),
+      ]);
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return { deleted: true };
 }
 
 /** Current derived NAV for a fund (member+). */

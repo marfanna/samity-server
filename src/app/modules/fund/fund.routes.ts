@@ -30,6 +30,7 @@ router.get('/:fundId/nav/history', fundRole('member'), ctrl.getNavHistory);
 router.get('/:fundId/overview', fundRole('member'), ctrl.getOverview);
 router.patch('/:fundId', fundRole('admin'), validateBody(updateFundSchema), ctrl.updateFundSettings);
 router.delete('/:fundId', fundRole('admin'), ctrl.closeFund);
+router.delete('/:fundId/purge', fundRole('admin'), ctrl.deleteFund);
 router.get('/:fundId/members', fundRole('member'), members.getMembers);
 
 // governance

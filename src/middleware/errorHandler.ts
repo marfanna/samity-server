@@ -32,7 +32,7 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     code = 'VALIDATION_ERROR';
     message =
       (err as { code?: string }).code === 'LIMIT_FILE_SIZE'
-        ? 'image must be 5 MB or smaller'
+        ? 'image must be 15 MB or smaller'
         : 'file upload failed';
   }
 

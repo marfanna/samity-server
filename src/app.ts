@@ -1,3 +1,4 @@
+import path from 'path';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -24,6 +25,12 @@ export function buildApp() {
 
   // baseline rate limit; /auth/* gets a stricter limiter in Phase 03
   app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+
+  // Local-driver file serving. Filenames are unguessable UUIDs; no directory listing.
+  // (Screenshots are payment proof — keep the UPLOAD_DIR off any public web root.)
+  if (env.STORAGE_ENABLED && env.STORAGE_DRIVER === 'local') {
+    app.use('/files', express.static(path.resolve(env.UPLOAD_DIR), { index: false, fallthrough: false }));
+  }
 
   app.use('/api', apiRouter);
 
