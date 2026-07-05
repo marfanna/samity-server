@@ -1,0 +1,27 @@
+name: Deploy Samity Server to Production
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        command_timeout: 15m
+        script: |
+          cd /var/www/samity
+          git fetch origin
+          git reset --hard origin/main
+          export PATH="/root/.nvm/versions/node/v22.12.0/bin:$PATH"
+          npm install
+          npm run build
+          /root/.nvm/versions/node/v22.12.0/lib/node_modules/pm2/bin/pm2 restart samity-server
+          /root/.nvm/versions/node/v22.12.0/lib/node_modules/pm2/bin/pm2 save
