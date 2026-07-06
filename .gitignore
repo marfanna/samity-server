@@ -8,3 +8,8 @@ coverage/
 
 # local file-storage driver dev uploads
 uploads/
+
+# ===== secrets (added) =====
+*firebase-adminsdk*.json
+*serviceAccount*.json
+.env.*
