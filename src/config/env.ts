@@ -53,6 +53,13 @@ const schema = z.object({
   SMS_TO_PARAM: z.string().default('number'),
   SMS_MESSAGE_PARAM: z.string().default('message'),
   SMS_SUCCESS_REGEX: z.string().optional(),
+
+  // Optional Google Play review access. Configure a dedicated phone/password so
+  // reviewers can log in without depending on SMS delivery.
+  PLAY_REVIEW_PHONE: z.string().regex(/^\+\d{8,15}$/).optional(),
+  PLAY_REVIEW_PASSWORD: z.string().min(6).optional(),
+  PLAY_REVIEW_OTP: z.string().regex(/^\d{6}$/).default('123456'),
+  PLAY_REVIEW_NAME: z.string().min(1).default('Play Store Reviewer'),
 });
 
 const parsed = schema.safeParse(process.env);

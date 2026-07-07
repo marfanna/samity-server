@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from '../../../shared/password';
 import { issueOtp, consumeOtp } from '../../../shared/otp';
 import { signAccess, signRefresh, verifyRefresh, decodeExp } from '../../../shared/jwt';
 import { ApiError } from '../../../utils/ApiError';
+import { env } from '../../../config/env';
 import type { RegisterInput, LoginInput, VerifyOtpInput, ResetInput } from './auth.validation';
 
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -30,6 +31,35 @@ const toPublic = (u: UserDoc): PublicUser => ({
   name: u.name,
   locale: u.locale,
 });
+
+function isPlayReviewLogin(input: LoginInput): boolean {
+  return Boolean(env.PLAY_REVIEW_PHONE && env.PLAY_REVIEW_PASSWORD)
+    && input.phone === env.PLAY_REVIEW_PHONE
+    && input.password === env.PLAY_REVIEW_PASSWORD;
+}
+
+async function ensurePlayReviewUser(): Promise<UserDoc> {
+  if (!env.PLAY_REVIEW_PHONE || !env.PLAY_REVIEW_PASSWORD) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'invalid phone or password');
+  }
+
+  const user = await User.findOneAndUpdate(
+    { phone: env.PLAY_REVIEW_PHONE },
+    {
+      $set: {
+        name: env.PLAY_REVIEW_NAME,
+        passwordHash: await hashPassword(env.PLAY_REVIEW_PASSWORD),
+        status: 'ACTIVE',
+        lastLoginAt: new Date(),
+      },
+      $setOnInsert: { locale: 'en' },
+    },
+    { upsert: true, new: true, runValidators: true },
+  );
+
+  if (!user) throw new ApiError(500, 'INTERNAL_ERROR', 'review account unavailable');
+  return user;
+}
 
 /** Issue access + a fresh refresh-token family, persisting the refresh hash for rotation. */
 async function issueSession(user: UserDoc): Promise<AuthTokens> {
@@ -59,6 +89,10 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<AuthTokens> {
   const payload = await consumeOtp(input.phone, input.purpose, input.otp);
 
   if (input.purpose === 'REGISTER') {
+    if (!payload && input.phone === env.PLAY_REVIEW_PHONE && input.otp === env.PLAY_REVIEW_OTP) {
+      return issueSession(await ensurePlayReviewUser());
+    }
+
     if (!payload?.name || !payload?.passwordHash) {
       throw new ApiError(400, 'VALIDATION_ERROR', 'registration data expired — start over');
     }
@@ -92,6 +126,10 @@ export async function verifyOtp(input: VerifyOtpInput): Promise<AuthTokens> {
 }
 
 export async function login(input: LoginInput): Promise<AuthTokens> {
+  if (isPlayReviewLogin(input)) {
+    return issueSession(await ensurePlayReviewUser());
+  }
+
   const user = await User.findOne({ phone: input.phone, status: 'ACTIVE' });
   if (!user || !(await verifyPassword(input.password, user.passwordHash))) {
     throw new ApiError(401, 'UNAUTHENTICATED', 'invalid phone or password');
