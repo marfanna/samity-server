@@ -9,7 +9,7 @@ import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
 import { presignedUrl } from '../../../shared/storage';
 import { withFundLock } from '../../../shared/fundLock';
-import { notifyUser } from '../../../shared/notify';
+import { notifyUser, notifyFundManagers } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
 import { Deposit, DepositStatus } from './deposit.model';
 import type { ListDepositsQuery, RejectDepositInput, SubmitDepositInput } from './deposit.validation';
@@ -117,6 +117,13 @@ export async function submitDeposit(
     refType: 'DEPOSIT',
     refId: deposit._id,
     after: { type: deposit.type, amount: deposit.amount, membershipId },
+  });
+
+  notifyFundManagers(fundId, actorId, {
+    type: 'DEPOSIT_SUBMITTED',
+    title: 'Deposit awaiting verification',
+    body: `৳${Math.round(deposit.amount / 100)} ${deposit.type.toLowerCase()} deposit submitted — needs review.`,
+    fundId,
   });
 
   return {

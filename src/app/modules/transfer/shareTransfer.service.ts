@@ -3,11 +3,43 @@ import { ShareTransfer } from './shareTransfer.model';
 import { Membership } from '../membership/membership.model';
 import { User } from '../user/user.model';
 import { AuditLog } from '../audit/auditLog.model';
+import { LedgerEntry } from '../ledger/ledgerEntry.model';
 import { appendLedger } from '../../../shared/ledger';
+import { computeNav } from '../../../shared/nav';
+import { memberValue, fundContributed } from '../../../shared/economics';
 import { withFundLock } from '../../../shared/fundLock';
-import { notifyUser } from '../../../shared/notify';
+import { notifyUser, notifyFundManagers } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
 import type { InitiateTransferInput } from './shareTransfer.validation';
+
+/**
+ * Seller's fair reference price for N shares = their own contributed principal + profit share
+ * (economics.memberValue), NOT fund-wide schedule NAV — so a member behind on dues doesn't get
+ * priced as if they'd paid on schedule. Informational only; agreedAmount is what's enforced.
+ */
+async function sellerReferencePrice(fundId: string, sellerMembershipId: string, shares: number): Promise<number> {
+  const [contributedAgg, totalContributed, nav, seller] = await Promise.all([
+    LedgerEntry.aggregate<{ total: number }>([
+      {
+        $match: {
+          fundId: new Types.ObjectId(fundId),
+          membershipId: new Types.ObjectId(sellerMembershipId),
+          kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+    fundContributed(fundId),
+    computeNav(fundId),
+    Membership.findById(sellerMembershipId, { shares: 1 }).lean(),
+  ]);
+
+  const contributed = contributedAgg[0]?.total ?? 0;
+  const { value } = memberValue(contributed, totalContributed, nav.totalAssets);
+  const sellerShares = seller?.shares ?? 0;
+  if (sellerShares <= 0) return 0;
+  return Math.round((value / sellerShares) * shares);
+}
 
 const TRANSFER_EXPIRY_MS = 72 * 60 * 60 * 1000; // 72 hours
 
@@ -31,6 +63,8 @@ export async function initiateTransfer(
     ? await Membership.findOne({ fundId, userId: buyerUser._id, status: { $ne: 'EXITED' } }).lean()
     : null;
 
+  const navAtTransfer = await sellerReferencePrice(fundId, actorMembershipId, input.shares);
+
   const transfer = await ShareTransfer.create({
     fundId: new Types.ObjectId(fundId),
     fromMembershipId: new Types.ObjectId(actorMembershipId),
@@ -38,6 +72,7 @@ export async function initiateTransfer(
     ...(buyerUser ? { toUserId: buyerUser._id } : {}),
     ...(buyerMembership ? { toMembershipId: buyerMembership._id } : {}),
     shares: input.shares,
+    navAtTransfer,
     agreedAmount: input.agreedAmount,
     screenshotUrl: input.screenshotUrl,
     sellerConfirmed: true,
@@ -45,6 +80,15 @@ export async function initiateTransfer(
     state: 'INITIATED',
     expiresAt: new Date(Date.now() + TRANSFER_EXPIRY_MS),
   });
+
+  if (buyerUser) {
+    void notifyUser(buyerUser._id, {
+      type: 'TRANSFER_PENDING_CONFIRM',
+      title: 'Share transfer needs your confirmation',
+      body: `${input.shares} share${input.shares !== 1 ? 's' : ''} for ৳${Math.round(input.agreedAmount / 100)} — confirm you've paid.`,
+      fundId,
+    });
+  }
 
   return { transferId: String(transfer._id), state: transfer.state };
 }
@@ -83,6 +127,15 @@ export async function buyerConfirmTransfer(userId: string, fundId: string, trans
   transfer.buyerConfirmed = true;
   transfer.state = transfer.sellerConfirmed ? 'BOTH_CONFIRMED' : 'INITIATED';
   await transfer.save();
+
+  if (transfer.state === 'BOTH_CONFIRMED') {
+    notifyFundManagers(fundId, undefined, {
+      type: 'TRANSFER_PENDING_APPROVAL',
+      title: 'Share transfer needs approval',
+      body: `${transfer.shares} share${transfer.shares !== 1 ? 's' : ''} — both sides confirmed, ready to approve.`,
+      fundId,
+    });
+  }
 
   return { transferId, state: transfer.state };
 }
@@ -248,6 +301,7 @@ export async function listMyTransfers(membershipId: string, fundId: string) {
   return transfers.map((t) => ({
     transferId: String(t._id),
     shares: t.shares,
+    navAtTransfer: t.navAtTransfer,
     agreedAmount: t.agreedAmount,
     state: t.state,
     toPhone: t.toPhone,
@@ -278,6 +332,7 @@ export async function listPendingApprovals(fundId: string) {
     return {
       transferId: String(t._id),
       shares: t.shares,
+      navAtTransfer: t.navAtTransfer,
       agreedAmount: t.agreedAmount,
       state: t.state,
       sellerName: sellerUserId ? nameByUserId.get(sellerUserId) ?? '—' : '—',

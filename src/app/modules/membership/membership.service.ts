@@ -8,6 +8,7 @@ import { Invite } from './invite.model';
 import { User } from '../user/user.model';
 import { AuditLog } from '../audit/auditLog.model';
 import { computeNav } from '../../../shared/nav';
+import { notifyUser, notifyFundManagers } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
 
 const INVITE_BASE = 'https://samity.app/invite';
@@ -73,6 +74,14 @@ export async function requestJoin(userId: string, fundId: string) {
   if (existingReq) throw new ApiError(409, 'STATE_CONFLICT', 'request already pending');
 
   const req = await JoinRequest.create({ fundId, userId, status: 'PENDING' });
+
+  notifyFundManagers(fundId, userId, {
+    type: 'JOIN_REQUESTED',
+    title: 'New join request',
+    body: `${fund.name} has a new request to join.`,
+    fundId,
+  });
+
   return { requestId: String(req._id), status: req.status };
 }
 
@@ -112,6 +121,14 @@ export async function decideJoinRequest(
     req.decidedBy = new Types.ObjectId(actorId);
     if (reason) req.reason = reason;
     await req.save();
+
+    void notifyUser(req.userId, {
+      type: 'JOIN_DECLINED',
+      title: 'Join request declined',
+      body: reason ?? 'Your request to join was declined.',
+      fundId,
+    });
+
     return { requestId, status: req.status };
   }
 
@@ -138,6 +155,13 @@ export async function decideJoinRequest(
     refType: 'JOIN_REQUEST',
     refId: req._id,
     after: { userId: String(req.userId), membershipId: String(membership._id) },
+  });
+
+  void notifyUser(req.userId, {
+    type: 'JOIN_APPROVED',
+    title: 'Join request approved',
+    body: 'You can now buy in and join the fund.',
+    fundId,
   });
 
   return { requestId, status: req.status, membershipId: String(membership._id) };
@@ -194,6 +218,13 @@ export async function changeMemberRole(
     after: { role: newRole },
   }]);
 
+  void notifyUser(target.userId, {
+    type: 'ROLE_CHANGED',
+    title: 'Your role changed',
+    body: `You are now a ${newRole} in this fund.`,
+    fundId,
+  });
+
   return { membershipId: targetMembershipId, role: newRole };
 }
 
@@ -235,6 +266,13 @@ export async function transferOwnership(
   } finally {
     await session.endSession();
   }
+
+  void notifyUser(target.userId, {
+    type: 'OWNERSHIP_TRANSFERRED',
+    title: 'You are now the fund admin',
+    body: 'Ownership of the fund has been transferred to you.',
+    fundId,
+  });
 
   return { newAdminMembershipId: targetMembershipId };
 }

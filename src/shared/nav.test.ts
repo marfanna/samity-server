@@ -19,7 +19,7 @@ async function createFund(faceValue = 20000): Promise<Types.ObjectId> {
     faceValue,
     policy: {
       cycleUnit: 'WEEKLY',
-      startDate: new Date('2026-01-01T00:00:00.000Z'),
+      startDate: new Date(),
     },
     createdBy: actorId,
   });

@@ -73,3 +73,32 @@ export function notifyFundMembers(
     }
   });
 }
+
+/**
+ * Notify a fund's admin + moderators (e.g. "action needed" events). Uses setImmediate
+ * to not block the response.
+ */
+export function notifyFundManagers(
+  fundId: string | Types.ObjectId,
+  excludeUserId: string | undefined,
+  payload: NotifyPayload,
+): void {
+  setImmediate(async () => {
+    try {
+      const { Membership } = await import('../app/modules/membership/membership.model');
+      const memberships = await Membership.find(
+        { fundId, status: 'ACTIVE', role: { $in: ['admin', 'moderator'] } },
+        { userId: 1 },
+      ).lean();
+
+      await Promise.allSettled(
+        memberships
+          .filter((m) => !excludeUserId || String(m.userId) !== excludeUserId)
+          .map((m) => notifyUser(m.userId, { ...payload, fundId })),
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[notify] notifyFundManagers failed:', (err as Error).message);
+    }
+  });
+}

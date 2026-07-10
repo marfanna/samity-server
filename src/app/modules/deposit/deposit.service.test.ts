@@ -33,7 +33,7 @@ async function createFixture(memberStatus: 'PENDING_BUYIN' | 'ACTIVE' = 'PENDING
     faceValue: 20000,
     policy: {
       cycleUnit: 'WEEKLY',
-      startDate: new Date('2026-01-01T00:00:00.000Z'),
+      startDate: new Date(),
       visibility: 'INVITE_ONLY',
       shareChange: 'BOTH',
       nonPayment: 'TRACK_ONLY',
@@ -183,7 +183,7 @@ describe('deposit service', () => {
 
     const verified = await verifyDeposit(String(fixture.adminUserId), String(fixture.fundId), submitted.depositId);
 
-    expect(verified).toMatchObject({ status: 'VERIFIED', sharesIssued: 0, navAtVerify: 0, nav: 27500 });
+    expect(verified).toMatchObject({ status: 'VERIFIED', sharesIssued: 0, navAtVerify: 0, nav: 20000 });
     await expect(Membership.findById(fixture.memberMembershipId).lean()).resolves.toMatchObject({
       paidThroughCycle: 1,
     });
