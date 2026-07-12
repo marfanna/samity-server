@@ -14,12 +14,24 @@ import { ApiError } from '../../../utils/ApiError';
 const INVITE_BASE = 'https://samity.app/invite';
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Public funds available to discover & request to join. */
-export async function exploreFunds(limit = 50) {
+/**
+ * Public funds available to discover & request to join. Includes the caller's own status per
+ * fund (member / pending request) so the UI can show the right action instead of always
+ * offering "Request to join" even after one is already in flight.
+ */
+export async function exploreFunds(userId: string, limit = 50) {
   const funds = await Fund.find({ 'policy.visibility': 'PUBLIC', status: 'ACTIVE' })
     .sort({ createdAt: -1 })
     .limit(limit)
     .lean();
+  const fundIds = funds.map((f) => f._id);
+
+  const [membership, pendingRequests] = await Promise.all([
+    Membership.find({ fundId: { $in: fundIds }, userId, status: { $ne: 'EXITED' } }, { fundId: 1 }).lean(),
+    JoinRequest.find({ fundId: { $in: fundIds }, userId, status: 'PENDING' }, { fundId: 1 }).lean(),
+  ]);
+  const memberFundIds = new Set(membership.map((m) => String(m.fundId)));
+  const pendingFundIds = new Set(pendingRequests.map((r) => String(r.fundId)));
 
   return Promise.all(
     funds.map(async (f) => {
@@ -34,6 +46,8 @@ export async function exploreFunds(limit = 50) {
         faceValue: f.faceValue,
         nav: nav.nav,
         memberCount,
+        isMember: memberFundIds.has(String(f._id)),
+        requestPending: pendingFundIds.has(String(f._id)),
       };
     }),
   );

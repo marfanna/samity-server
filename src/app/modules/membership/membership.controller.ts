@@ -4,8 +4,8 @@ import { catchAsync } from '../../../utils/catchAsync';
 import { sendResponse } from '../../../utils/sendResponse';
 import * as svc from './membership.service';
 
-export const explore = catchAsync(async (_req: Request, res: Response) => {
-  sendResponse(res, httpStatus.OK, await svc.exploreFunds());
+export const explore = catchAsync(async (req: Request, res: Response) => {
+  sendResponse(res, httpStatus.OK, await svc.exploreFunds(req.userId!));
 });
 
 export const getMembers = catchAsync(async (req: Request, res: Response) => {
