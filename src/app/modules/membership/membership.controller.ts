@@ -48,6 +48,11 @@ export const changeMemberRole = catchAsync(async (req: Request, res: Response) =
   sendResponse(res, httpStatus.OK, result);
 });
 
+export const reactivateMembership = catchAsync(async (req: Request, res: Response) => {
+  const result = await svc.reactivateMembership(req.userId!, req.params.fundId!, req.params.membershipId!);
+  sendResponse(res, httpStatus.OK, result);
+});
+
 export const transferOwnership = catchAsync(async (req: Request, res: Response) => {
   const result = await svc.transferOwnership(
     req.userId!,

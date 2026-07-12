@@ -3,6 +3,7 @@ import { connectDb, disconnectDb } from './config/db';
 import { dbInit } from './config/dbInit';
 import { buildApp } from './app';
 import { startReminders } from './shared/reminders';
+import { startNonPaymentCron } from './shared/nonPayment';
 import type { Server } from 'http';
 
 let server: Server | undefined;
@@ -12,6 +13,7 @@ async function bootstrap(): Promise<void> {
   await dbInit();
 
   startReminders();
+  startNonPaymentCron();
   const app = buildApp();
   server = app.listen(env.PORT, () => {
     // eslint-disable-next-line no-console

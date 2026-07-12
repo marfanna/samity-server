@@ -67,6 +67,7 @@ export async function getMembers(fundId: string) {
       membershipId: String(m._id),
       name: u?.name ?? '—',
       role: m.role,
+      status: m.status,
       // imported member who hasn't installed + claimed their account yet
       pendingClaim: u?.status === 'INVITED',
     };
@@ -240,6 +241,41 @@ export async function changeMemberRole(
   });
 
   return { membershipId: targetMembershipId, role: newRole };
+}
+
+/**
+ * Lift a SUSPENDED membership back to ACTIVE (admin/mod). Does not reset `missedCycles` — if
+ * the member is still behind, the next non-payment sweep re-suspends them. This lifts the
+ * suspension now; it isn't a permanent exemption (change fund policy for that).
+ */
+export async function reactivateMembership(actorId: string, fundId: string, targetMembershipId: string) {
+  const target = await Membership.findOne({ _id: targetMembershipId, fundId });
+  if (!target) throw new ApiError(404, 'NOT_FOUND', 'membership not found');
+  if (target.status !== 'SUSPENDED') {
+    throw new ApiError(409, 'STATE_CONFLICT', 'membership is not suspended');
+  }
+
+  target.status = 'ACTIVE';
+  await target.save();
+
+  await AuditLog.create([{
+    fundId: new Types.ObjectId(fundId),
+    actorId: new Types.ObjectId(actorId),
+    action: 'MEMBER_REACTIVATE',
+    refType: 'MEMBERSHIP',
+    refId: new Types.ObjectId(targetMembershipId),
+    before: { status: 'SUSPENDED' },
+    after: { status: 'ACTIVE' },
+  }]);
+
+  void notifyUser(target.userId, {
+    type: 'MEMBERSHIP_REACTIVATED',
+    title: 'Membership reactivated',
+    body: 'Your membership is active again.',
+    fundId,
+  });
+
+  return { membershipId: targetMembershipId, status: 'ACTIVE' as const };
 }
 
 /**

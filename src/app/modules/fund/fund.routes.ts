@@ -41,6 +41,7 @@ router.patch(
   members.changeMemberRole,
 );
 router.post('/:fundId/transfer-ownership', fundRole('admin'), members.transferOwnership);
+router.patch('/:fundId/members/:membershipId/reactivate', fundRole('admin'), members.reactivateMembership);
 
 // join requests — POST is open to any authenticated user (not yet a member)
 router.post('/:fundId/join-requests', members.requestJoin);
