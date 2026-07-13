@@ -16,3 +16,8 @@ export const fcmTokenSchema = z.object({
   token: z.string().min(1),
 });
 export type FcmTokenInput = z.infer<typeof fcmTokenSchema>;
+
+export const deleteAccountSchema = z.object({
+  password: z.string().min(1),
+});
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

@@ -5,7 +5,7 @@ import { env } from '../config/env';
 import { ApiError } from '../utils/ApiError';
 import { sendSms } from './sms';
 
-const TTL_SEC = 300; // mirrors the otps TTL index
+export const TTL_SEC = 300; // mirrors the otps TTL index
 const RESEND_COOLDOWN_SEC = 60;
 const MAX_ATTEMPTS = 5;
 

@@ -16,7 +16,8 @@ router.use('/invites', inviteRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/uploads', uploadRoutes);
 
-// More fund-scoped routers (deposits, investments, transfers, …) mount here in Phase 07+.
+// Deposits/investments/transfers/ledger are fund-scoped and nested inside fundRoutes
+// (e.g. /funds/:fundId/deposits) rather than mounted separately here.
 
 router.get('/health', (_req, res) => {
   const states = ['disconnected', 'connected', 'connecting', 'disconnecting'] as const;

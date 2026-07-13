@@ -26,6 +26,7 @@ type DepositListItem = {
   screenshotViewUrl?: string;
   status: DepositStatus;
   reason?: string;
+  note?: string;
   createdAt: Date;
 };
 
@@ -161,6 +162,7 @@ export async function listDeposits(fundId: string, query: ListDepositsQuery): Pr
       ...(screenshotViewUrl ? { screenshotViewUrl } : {}),
       status: deposit.status,
       ...(reason ? { reason } : {}),
+      ...(deposit.note ? { note: deposit.note } : {}),
       createdAt: deposit.createdAt,
     };
   }));
@@ -185,6 +187,7 @@ export async function listMyDeposits(fundId: string, membershipId: string): Prom
       ...(screenshotViewUrl ? { screenshotViewUrl } : {}),
       status: deposit.status,
       ...(reason ? { reason } : {}),
+      ...(deposit.note ? { note: deposit.note } : {}),
       createdAt: deposit.createdAt,
     };
   }));
@@ -227,9 +230,10 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
         const navBefore = await computeNav(fundId, session);
         let sharesIssued = 0;
 
+        const fund = await Fund.findById(fundId).session(session).lean();
+        if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
+
         if (deposit.type === 'BUY_IN') {
-          const fund = await Fund.findById(fundId).session(session).lean();
-          if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
           if (!['PENDING_BUYIN', 'ACTIVE'].includes(membership.status)) {
             throw new ApiError(409, 'STATE_CONFLICT', 'buy-in requires a pending or active membership');
           }
@@ -245,6 +249,17 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
             throw new ApiError(409, 'AMOUNT_MISMATCH', 'buy-in amount no longer matches current NAV');
           }
           sharesIssued = deposit.sharesRequested;
+        } else {
+          // Re-check against CURRENT shares — a share transfer between submit and verify could
+          // have moved shares off this membership, making the originally-submitted amount stale.
+          // BUY_IN already got this re-check (above); REGULAR/ADVANCE didn't.
+          if (membership.status !== 'ACTIVE' || membership.shares <= 0) {
+            throw new ApiError(409, 'STATE_CONFLICT', 'membership is no longer eligible for this deposit');
+          }
+          const expectedAmount = membership.shares * fund.faceValue * deposit.cyclesCovered;
+          if (deposit.amount !== expectedAmount) {
+            throw new ApiError(409, 'AMOUNT_MISMATCH', 'deposit amount no longer matches current shares');
+          }
         }
 
         const updated = await Deposit.updateOne(

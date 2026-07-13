@@ -4,6 +4,7 @@ import { dbInit } from './config/dbInit';
 import { buildApp } from './app';
 import { startReminders } from './shared/reminders';
 import { startNonPaymentCron } from './shared/nonPayment';
+import { startTransferExpiryCron } from './app/modules/transfer/shareTransfer.service';
 import type { Server } from 'http';
 
 let server: Server | undefined;
@@ -14,6 +15,7 @@ async function bootstrap(): Promise<void> {
 
   startReminders();
   startNonPaymentCron();
+  startTransferExpiryCron();
   const app = buildApp();
   server = app.listen(env.PORT, () => {
     // eslint-disable-next-line no-console

@@ -2,7 +2,13 @@ import { Router } from 'express';
 import { authGuard } from '../../../middleware/authGuard';
 import { fundRole } from '../../../middleware/fundRole';
 import { validateBody } from '../../../middleware/validate';
-import { createFundSchema, importFundSchema, updateFundSchema, changeMemberRoleSchema } from './fund.validation';
+import {
+  createFundSchema,
+  importFundSchema,
+  updateFundSchema,
+  changeMemberRoleSchema,
+  transferOwnershipSchema,
+} from './fund.validation';
 import * as ctrl from './fund.controller';
 import * as members from '../membership/membership.controller';
 import * as deposits from '../deposit/deposit.controller';
@@ -13,6 +19,7 @@ import { rejectDepositSchema, submitDepositSchema } from '../deposit/deposit.val
 import { recordInvestmentSchema, recordReturnSchema } from '../investment/investment.validation';
 import * as transfers from '../transfer/shareTransfer.controller';
 import { initiateTransferSchema } from '../transfer/shareTransfer.validation';
+import { reverseLedgerEntrySchema } from '../ledger/ledger.validation';
 
 const router = Router();
 
@@ -40,7 +47,12 @@ router.patch(
   validateBody(changeMemberRoleSchema),
   members.changeMemberRole,
 );
-router.post('/:fundId/transfer-ownership', fundRole('admin'), members.transferOwnership);
+router.post(
+  '/:fundId/transfer-ownership',
+  fundRole('admin'),
+  validateBody(transferOwnershipSchema),
+  members.transferOwnership,
+);
 router.patch('/:fundId/members/:membershipId/reactivate', fundRole('admin'), members.reactivateMembership);
 
 // join requests — POST is open to any authenticated user (not yet a member)
@@ -80,5 +92,11 @@ router.delete('/:fundId/transfers/:id', fundRole('member'), transfers.cancelTran
 router.get('/:fundId/ledger', fundRole('member'), ledger.getFundLedger);
 router.get('/:fundId/me/ledger', fundRole('member'), ledger.getMyLedger);
 router.get('/:fundId/members/:membershipId/ledger', fundRole('moderator'), ledger.getMemberLedger);
+router.post(
+  '/:fundId/ledger/:entryId/reverse',
+  fundRole('admin'),
+  validateBody(reverseLedgerEntrySchema),
+  ledger.reverseLedgerEntry,
+);
 
 export const fundRoutes = router;

@@ -1,4 +1,5 @@
 import mongoose, { Types } from 'mongoose';
+import cron from 'node-cron';
 import { ShareTransfer } from './shareTransfer.model';
 import { Membership } from '../membership/membership.model';
 import { User } from '../user/user.model';
@@ -287,6 +288,49 @@ export async function cancelTransfer(
   await transfer.save();
 
   return { transferId, state: 'CANCELLED' };
+}
+
+/**
+ * Auto-cancel transfers whose 72h window lapsed without both sides confirming + approval.
+ * `expiresAt` was written at `initiateTransfer` but nothing ever read it — this is that sweep.
+ * CAS per-document (state must still match what we read) so a concurrent confirm/approve/cancel
+ * always wins over the sweep instead of racing it.
+ */
+export async function expireStaleTransfers(now: Date = new Date()): Promise<void> {
+  const stale = await ShareTransfer.find({
+    state: { $in: ['INITIATED', 'BOTH_CONFIRMED'] },
+    expiresAt: { $lt: now },
+  }).lean();
+
+  for (const t of stale) {
+    const updated = await ShareTransfer.updateOne(
+      { _id: t._id, state: t.state },
+      { $set: { state: 'EXPIRED' } },
+    );
+    if (updated.modifiedCount === 0) continue; // raced with a confirm/approve/cancel — leave it
+
+    const seller = await Membership.findById(t.fromMembershipId, { userId: 1 }).lean();
+    if (seller) {
+      void notifyUser(seller.userId, {
+        type: 'TRANSFER_EXPIRED',
+        title: 'Share transfer expired',
+        body: `Your transfer of ${t.shares} share${t.shares !== 1 ? 's' : ''} expired — it wasn't confirmed and approved in time.`,
+        fundId: String(t.fundId),
+      });
+    }
+  }
+}
+
+/** Fires every 15 minutes — transfers have a 72h window, so this is frequent enough. */
+export function startTransferExpiryCron(): void {
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      await expireStaleTransfers();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[transferExpiry] sweep failed:', err instanceof Error ? err.message : err);
+    }
+  });
 }
 
 /** My transfers for a fund (both as seller and as buyer). */

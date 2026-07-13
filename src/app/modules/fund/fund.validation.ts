@@ -101,3 +101,11 @@ export const changeMemberRoleSchema = z.object({
 });
 
 export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
+
+const objectId = z.string().regex(/^[a-f0-9]{24}$/i, 'invalid id');
+
+export const transferOwnershipSchema = z.object({
+  membershipId: objectId,
+});
+
+export type TransferOwnershipInput = z.infer<typeof transferOwnershipSchema>;

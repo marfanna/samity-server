@@ -17,7 +17,6 @@ import { NavSnapshot } from './nav/navSnapshot.model';
 import { Investment } from './investment/investment.model';
 import { ShareTransfer } from './transfer/shareTransfer.model';
 import { AuditLog } from './audit/auditLog.model';
-import { RoleChange } from './audit/roleChange.model';
 import { Notification } from './notification/notification.model';
 
 type IndexSyncModel = {
@@ -44,6 +43,5 @@ export const allModels: IndexSyncModel[] = [
   Investment,
   ShareTransfer,
   AuditLog,
-  RoleChange,
   Notification,
 ];

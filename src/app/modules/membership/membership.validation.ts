@@ -5,6 +5,10 @@ export const decideJoinSchema = z.object({
   reason: z.string().trim().max(200).optional(),
 });
 
+export const listJoinRequestsQuerySchema = z.object({
+  status: z.enum(['PENDING', 'APPROVED', 'DECLINED']).optional(),
+});
+
 export const createInviteSchema = z.object({
   phone: z
     .string()

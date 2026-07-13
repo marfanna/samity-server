@@ -3,6 +3,7 @@ import httpStatus from 'http-status';
 import { catchAsync } from '../../../utils/catchAsync';
 import { sendResponse } from '../../../utils/sendResponse';
 import * as svc from './membership.service';
+import { listJoinRequestsQuerySchema } from './membership.validation';
 
 export const explore = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, httpStatus.OK, await svc.exploreFunds(req.userId!));
@@ -18,7 +19,7 @@ export const requestJoin = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const listJoinRequests = catchAsync(async (req: Request, res: Response) => {
-  const status = req.query.status as string | undefined;
+  const { status } = listJoinRequestsQuerySchema.parse(req.query);
   sendResponse(res, httpStatus.OK, await svc.listJoinRequests(req.params.fundId!, status));
 });
 

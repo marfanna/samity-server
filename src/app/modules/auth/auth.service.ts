@@ -1,16 +1,15 @@
 import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
+import ms from 'ms';
 import { User, UserDoc } from '../user/user.model';
 import { RefreshToken } from '../_infra/refreshToken.model';
 import { TokenBlacklist } from '../_infra/tokenBlacklist.model';
 import { hashPassword, verifyPassword } from '../../../shared/password';
-import { issueOtp, consumeOtp } from '../../../shared/otp';
+import { issueOtp, consumeOtp, TTL_SEC } from '../../../shared/otp';
 import { signAccess, signRefresh, verifyRefresh, decodeExp } from '../../../shared/jwt';
 import { ApiError } from '../../../utils/ApiError';
 import { env } from '../../../config/env';
 import type { RegisterInput, LoginInput, VerifyOtpInput, ResetInput } from './auth.validation';
-
-const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface PublicUser {
   id: string;
@@ -70,7 +69,10 @@ async function issueSession(user: UserDoc): Promise<AuthTokens> {
     userId: user._id,
     tokenHash: await bcrypt.hash(refreshToken, 8),
     family,
-    expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+    // Derive from the token's own exp claim (driven by JWT_REFRESH_TTL) rather than a
+    // hardcoded duration, so the DB TTL-cleanup can't drift out of sync with the JWT itself
+    // and misclassify a still-valid refresh as reuse (see the reuse-detection check below).
+    expiresAt: decodeExp(refreshToken)!,
   });
   return { accessToken, refreshToken, user: toPublic(user) };
 }
@@ -142,7 +144,8 @@ export async function login(input: LoginInput): Promise<AuthTokens> {
 export async function forgotPassword(phone: string): Promise<{ expiresInSec: number }> {
   const user = await User.findOne({ phone, status: 'ACTIVE' }).lean();
   // Don't leak whether the phone exists — pretend success, only send if real.
-  if (!user) return { expiresInSec: 300 };
+  // Must match the real OTP TTL exactly, or a mismatched expiresInSec becomes the leak.
+  if (!user) return { expiresInSec: TTL_SEC };
   return issueOtp(phone, 'RESET');
 }
 
@@ -186,14 +189,14 @@ export async function refresh(refreshToken: string): Promise<AuthTokens> {
     userId: user._id,
     tokenHash: await bcrypt.hash(newRefresh, 8),
     family: payload.family,
-    expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+    expiresAt: decodeExp(newRefresh)!,
   });
   return { accessToken, refreshToken: newRefresh, user: toPublic(user) };
 }
 
 /** Blacklist the access token until its natural expiry + drop the refresh family. */
 export async function logout(accessJti: string, accessToken: string, refreshToken?: string): Promise<void> {
-  const exp = decodeExp(accessToken) ?? new Date(Date.now() + 15 * 60_000);
+  const exp = decodeExp(accessToken) ?? new Date(Date.now() + ms(env.JWT_ACCESS_TTL as ms.StringValue));
   await TokenBlacklist.create({ jti: accessJti, expiresAt: exp });
   if (refreshToken) {
     try {

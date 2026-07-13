@@ -24,3 +24,13 @@ export const getMemberLedger = catchAsync(async (req: Request, res: Response) =>
   );
   sendResponse(res, httpStatus.OK, result);
 });
+
+export const reverseLedgerEntry = catchAsync(async (req: Request, res: Response) => {
+  const result = await ledgerService.reverseLedgerEntry(
+    req.userId!,
+    req.params.fundId!,
+    req.params.entryId!,
+    req.body.reason,
+  );
+  sendResponse(res, httpStatus.OK, result);
+});

@@ -1,7 +1,7 @@
 import { Schema, model, Types } from 'mongoose';
 import { paisa, signedPaisa, baseOpts } from '../../../shared/schemaHelpers';
 
-export type InvestmentState = 'PROPOSED' | 'ACTIVE' | 'RETURNED' | 'SETTLED';
+export type InvestmentState = 'ACTIVE' | 'RETURNED' | 'SETTLED';
 
 export interface InvestmentDoc {
   _id: Types.ObjectId;
@@ -31,7 +31,7 @@ const investmentSchema = new Schema<InvestmentDoc>(
     actualReturn: paisa({ default: 0 }),
     returnScreenshotUrl: { type: String },
     profitLoss: signedPaisa({ default: 0 }),
-    state: { type: String, enum: ['PROPOSED', 'ACTIVE', 'RETURNED', 'SETTLED'], default: 'ACTIVE' },
+    state: { type: String, enum: ['ACTIVE', 'RETURNED', 'SETTLED'], default: 'ACTIVE' },
     recordedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     returnedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     returnedAt: { type: Date },

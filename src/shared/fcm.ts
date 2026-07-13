@@ -34,30 +34,6 @@ export interface PushPayload {
 }
 
 /**
- * Send a push notification to a single FCM device token.
- * Best-effort - never throws. Returns true if delivered.
- */
-export async function sendPush(token: string, payload: PushPayload): Promise<boolean> {
-  if (!initApp()) return false;
-  try {
-    await getMessaging().send({
-      token,
-      notification: { title: payload.title, body: payload.body },
-      ...(payload.data || payload.deepLink
-        ? { data: { ...payload.data, ...(payload.deepLink ? { deepLink: payload.deepLink } : {}) } }
-        : {}),
-      android: { priority: 'high', notification: { channelId: 'samity_default' } },
-      apns: { payload: { aps: { badge: 1, sound: 'default' } } },
-    });
-    return true;
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[fcm] push failed:', (err as Error).message);
-    return false;
-  }
-}
-
-/**
  * Send to multiple tokens in one batch (up to 500). Returns success count.
  */
 export async function sendPushMulti(tokens: string[], payload: PushPayload): Promise<number> {

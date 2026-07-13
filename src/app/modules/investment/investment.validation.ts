@@ -10,7 +10,8 @@ export const recordInvestmentSchema = z.object({
 });
 
 export const recordReturnSchema = z.object({
-  actualReturn: intPaisa,
+  // min(0), not intPaisa's min(1) — a total loss (nothing came back) must be representable.
+  actualReturn: z.number().int('must be integer paisa').min(0),
   screenshotUrl: z.string().trim().min(1),
 });
 

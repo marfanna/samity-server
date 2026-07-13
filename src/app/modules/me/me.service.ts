@@ -4,7 +4,7 @@ import { Fund } from '../fund/fund.model';
 import { LedgerEntry } from '../ledger/ledgerEntry.model';
 import { NavSnapshot } from '../nav/navSnapshot.model';
 import { RefreshToken } from '../_infra/refreshToken.model';
-import { hashPassword } from '../../../shared/password';
+import { hashPassword, verifyPassword } from '../../../shared/password';
 import { computeNav } from '../../../shared/nav';
 import { memberValue } from '../../../shared/economics';
 import { cyclesBehind } from '../../../shared/cycle';
@@ -26,6 +26,13 @@ export async function updateMe(userId: string, input: UpdateMeInput) {
   if (input.password !== undefined) user.passwordHash = await hashPassword(input.password);
   await user.save();
 
+  // A password change is a "was this account compromised?" moment — kill every other
+  // session so a leaked credential can't keep riding an old refresh token. Matches
+  // resetPassword's behavior (see auth.service.ts).
+  if (input.password !== undefined) {
+    await RefreshToken.deleteMany({ userId: user._id });
+  }
+
   return { id: String(user._id), phone: user.phone, name: user.name, locale: user.locale };
 }
 
@@ -33,10 +40,14 @@ export async function updateMe(userId: string, input: UpdateMeInput) {
  * Soft-delete the account (status → DELETED) and kill all sessions.
  * Fund records/ledger are retained for audit. Blocked while the user is the admin of any
  * ACTIVE fund — they must transfer ownership or close those funds first.
+ * Requires the account password — an irreversible action must not be one accidental tap away.
  */
-export async function deleteAccount(userId: string) {
+export async function deleteAccount(userId: string, password: string) {
   const user = await User.findOne({ _id: userId, status: 'ACTIVE' });
   if (!user) throw new ApiError(404, 'NOT_FOUND', 'account not found');
+  if (!(await verifyPassword(password, user.passwordHash))) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'incorrect password');
+  }
 
   const adminFunds = await Membership.find({ userId, role: 'admin', status: { $ne: 'EXITED' } }).lean();
   if (adminFunds.length > 0) {
@@ -55,22 +66,27 @@ export async function deleteAccount(userId: string) {
 
   user.status = 'DELETED';
   user.fcmTokens = [];
+  // Free the phone number for future re-registration — `phone` has a global unique index
+  // with no exception for DELETED, so leaving it as-is permanently blocks that number from
+  // ever registering again (the tombstone suffix keeps it readable for support/audit).
+  user.phone = `${user.phone}#deleted-${user._id}`;
   await user.save();
   await RefreshToken.deleteMany({ userId: user._id });
 
   return { deleted: true };
 }
 
-/** Register a device FCM token (add if not already present, max 10 per user). */
+const FCM_TOKEN_CAP = 10; // avoid unbounded growth from old/replaced devices
+
+/** Register a device FCM token (add if not already present, max FCM_TOKEN_CAP per user). */
 export async function registerFcmToken(userId: string, token: string) {
   await User.updateOne(
     { _id: userId },
     { $addToSet: { fcmTokens: token } },
   );
-  // Cap at 10 to avoid unbounded growth (old device tokens)
   await User.updateOne(
-    { _id: userId, $expr: { $gt: [{ $size: '$fcmTokens' }, 10] } },
-    [{ $set: { fcmTokens: { $slice: ['$fcmTokens', -10] } } }],
+    { _id: userId, $expr: { $gt: [{ $size: '$fcmTokens' }, FCM_TOKEN_CAP] } },
+    [{ $set: { fcmTokens: { $slice: ['$fcmTokens', -FCM_TOKEN_CAP] } } }],
   );
 }
 

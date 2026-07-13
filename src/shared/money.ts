@@ -26,30 +26,3 @@ export function bdtToPaisa(bdt: string): Paisa {
   const paisa = Number(whole) * 100 + Number(frac.padEnd(2, '0'));
   return neg ? -paisa : paisa;
 }
-
-/**
- * Split `total` paisa across `weights` (e.g. share counts) using the largest-remainder
- * method so the parts ALWAYS sum back to exactly `total` — no paisa lost or invented.
- * Used for profit/loss distribution.
- */
-export function largestRemainderSplit(total: Paisa, weights: number[]): Paisa[] {
-  assertPaisa(total, 'total');
-  const sumW = weights.reduce((a, b) => a + b, 0);
-  if (sumW <= 0) throw new Error('weights must sum to a positive number');
-
-  const exact = weights.map((w) => (total * w) / sumW);
-  const floors = exact.map((x) => Math.floor(x));
-  let remainder = total - floors.reduce((a, b) => a + b, 0);
-
-  // hand out the leftover paisa to the largest fractional parts first
-  const order = exact
-    .map((x, i) => ({ i, frac: x - Math.floor(x) }))
-    .sort((a, b) => b.frac - a.frac);
-
-  const result = [...floors];
-  for (let k = 0; k < order.length && remainder > 0; k++) {
-    result[order[k]!.i]! += 1;
-    remainder -= 1;
-  }
-  return result;
-}

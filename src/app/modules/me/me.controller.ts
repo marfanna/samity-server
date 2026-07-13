@@ -21,7 +21,7 @@ export const getPortfolioHistory = catchAsync(async (req: Request, res: Response
 });
 
 export const deleteMe = catchAsync(async (req: Request, res: Response) => {
-  sendResponse(res, httpStatus.OK, await meService.deleteAccount(req.userId!));
+  sendResponse(res, httpStatus.OK, await meService.deleteAccount(req.userId!, req.body.password));
 });
 
 export const registerFcmToken = catchAsync(async (req: Request, res: Response) => {
