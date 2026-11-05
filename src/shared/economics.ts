@@ -1,5 +1,5 @@
 import { ClientSession, Types } from 'mongoose';
-import { LedgerEntry } from '../app/modules/ledger/ledgerEntry.model';
+import { LedgerEntry, LedgerEntryDoc } from '../app/modules/ledger/ledgerEntry.model';
 
 /**
  * A member's value = their contributed principal + their share of fund profit.
@@ -58,24 +58,57 @@ const CASH_KINDS = new Set(['CASH_IN', 'CASH_OUT_INVEST', 'INVEST_RETURN', 'REVE
  *
  * With no buy-ins this is exactly memberValue() for everyone.
  */
-export async function fundMemberPositions(
+export type PositionEntry = Pick<
+  LedgerEntryDoc,
+  '_id' | 'kind' | 'amount' | 'membershipId' | 'refId' | 'reversalOf' | 'at'
+>;
+
+/** The ledger rows fundMemberPositions needs, oldest first. */
+export async function loadPositionEntries(
   fundId: Types.ObjectId | string,
-  totalAssets: number,
   session?: ClientSession,
-): Promise<Map<string, MemberPosition>> {
-  const fid = new Types.ObjectId(fundId);
-  const entriesQ = LedgerEntry.find(
+): Promise<PositionEntry[]> {
+  const q = LedgerEntry.find(
     {
-      fundId: fid,
+      fundId: new Types.ObjectId(fundId),
       kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION', 'REVERSAL', 'BUYIN_PREMIUM', 'CASH_OUT_INVEST', 'INVEST_RETURN', 'OPENING_CASH'] },
     },
     { kind: 1, amount: 1, membershipId: 1, refId: 1, reversalOf: 1, at: 1 },
   )
     .sort({ at: 1, _id: 1 })
-    .lean();
-  if (session) entriesQ.session(session);
-  const entries = await entriesQ;
+    .lean<PositionEntry[]>();
+  if (session) q.session(session);
+  return q;
+}
 
+export async function fundMemberPositions(
+  fundId: Types.ObjectId | string,
+  totalAssets: number,
+  session?: ClientSession,
+): Promise<Map<string, MemberPosition>> {
+  return computeMemberPositions(await loadPositionEntries(fundId, session), totalAssets);
+}
+
+/**
+ * Entries as the books stood at `asOf`. A BUYIN_PREMIUM counts from its buy-in's CASH_IN time,
+ * so a premium recorded after the fact (a correction) doesn't show a phantom profit blip.
+ */
+export function entriesAsOf(entries: PositionEntry[], asOf: Date): PositionEntry[] {
+  const t = asOf.getTime();
+  const cashInAt = new Map<string, number>();
+  for (const e of entries) {
+    if (e.kind !== 'CASH_IN') continue;
+    cashInAt.set(String(e._id), e.at.getTime());
+    if (e.refId) cashInAt.set(String(e.refId), e.at.getTime());
+  }
+  return entries.filter((e) => {
+    if (e.kind === 'BUYIN_PREMIUM' && e.refId) return (cashInAt.get(String(e.refId)) ?? e.at.getTime()) <= t;
+    return e.at.getTime() <= t;
+  });
+}
+
+/** Pure core of fundMemberPositions — see its doc. `entries` must be oldest first. */
+export function computeMemberPositions(entries: PositionEntry[], totalAssets: number): Map<string, MemberPosition> {
   const kindById = new Map(entries.map((e) => [String(e._id), e.kind]));
   const investCost = new Map<string, number>(); // investmentId → cost, from CASH_OUT_INVEST
 

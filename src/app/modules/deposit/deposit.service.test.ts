@@ -11,6 +11,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { User } from '../user/user.model';
 import { computeNav } from '../../../shared/nav';
 import { fundMemberPositions } from '../../../shared/economics';
+import { getPortfolioHistory } from '../me/me.service';
 import { Deposit } from './deposit.model';
 import { rejectDeposit, submitDeposit, verifyDeposit } from './deposit.service';
 
@@ -293,6 +294,10 @@ describe('deposit service', () => {
       joinCycle: 3,
       paidThroughCycle: 3,
     });
+    // Trend chart replays the same buy-in-aware value — no inflated point for the buyer.
+    const history = await getPortfolioHistory(String(fixture.memberUserId));
+    expect(history.at(-1)?.value).toBe(204000);
+    expect(Math.max(...history.map((p) => p.value))).toBe(204000);
   });
 
   it('shares profit earned after a buy-in with the buyer by money paid', async () => {

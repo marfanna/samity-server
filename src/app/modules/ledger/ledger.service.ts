@@ -63,6 +63,7 @@ export async function getMyLedger(fundId: string, membershipId: string) {
     entries: entries.map((e) => ({
       kind: e.kind,
       amount: e.amount,
+      shares: e.shares,
       cyclesCovered: e.cyclesCovered,
       at: e.at,
     })),
@@ -124,6 +125,7 @@ export async function getMemberLedger(fundId: string, membershipId: string) {
     entries: entries.map((e) => ({
       kind: e.kind,
       amount: e.amount,
+      shares: e.shares,
       cyclesCovered: e.cyclesCovered,
       at: e.at,
     })),

@@ -6,7 +6,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { RefreshToken } from '../_infra/refreshToken.model';
 import { hashPassword, verifyPassword } from '../../../shared/password';
 import { computeNav } from '../../../shared/nav';
-import { memberValue, memberPosition } from '../../../shared/economics';
+import { computeMemberPositions, entriesAsOf, loadPositionEntries, memberPosition } from '../../../shared/economics';
 import { cyclesBehind } from '../../../shared/cycle';
 import { ApiError } from '../../../utils/ApiError';
 import type { UpdateMeInput } from './me.validation';
@@ -165,7 +165,7 @@ export async function getMyFunds(userId: string) {
 }
 
 /**
- * My total portfolio value (sum of memberValue across all my funds) over time, for the
+ * My total portfolio value (sum of my buy-in-aware position across all my funds) over time, for the
  * dashboard trend chart. Resampled at every NavSnapshot across any of my funds — each point
  * carries forward the latest known value for funds that didn't change at that instant.
  */
@@ -176,39 +176,22 @@ export async function getPortfolioHistory(userId: string, limit = 30) {
   const fundIds = memberships.map((m) => m.fundId);
   const membershipIdByFund = new Map(memberships.map((m) => [String(m.fundId), String(m._id)]));
 
-  const [snapshots, contributionEntries] = await Promise.all([
+  const [snapshots, entriesByFund] = await Promise.all([
     NavSnapshot.find({ fundId: { $in: fundIds } }, { fundId: 1, totalAssets: 1, at: 1 })
       .sort({ at: 1 })
       .lean(),
-    LedgerEntry.find(
-      { fundId: { $in: fundIds }, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } },
-      { fundId: 1, membershipId: 1, amount: 1, at: 1 },
-    )
-      .sort({ at: 1 })
-      .lean(),
+    Promise.all(fundIds.map((f) => loadPositionEntries(f))),
   ]);
   if (snapshots.length === 0) return [];
+  const entriesOf = new Map(fundIds.map((f, i) => [String(f), entriesByFund[i]!]));
 
-  const fundTotalContributed = new Map<string, number>();
-  const myContributed = new Map<string, number>();
+  // Same buy-in-aware value as the live dashboard, replayed as of each snapshot.
   const latestFundValue = new Map<string, number>();
-  let entryIdx = 0;
-
   const points: { at: string; value: number }[] = [];
   for (const snap of snapshots) {
-    while (entryIdx < contributionEntries.length && (contributionEntries[entryIdx]?.at.getTime() ?? Infinity) <= snap.at.getTime()) {
-      const e = contributionEntries[entryIdx]!;
-      const fid = String(e.fundId);
-      fundTotalContributed.set(fid, (fundTotalContributed.get(fid) ?? 0) + e.amount);
-      if (e.membershipId && String(e.membershipId) === membershipIdByFund.get(fid)) {
-        myContributed.set(fid, (myContributed.get(fid) ?? 0) + e.amount);
-      }
-      entryIdx++;
-    }
-
     const fid = String(snap.fundId);
-    const { value } = memberValue(myContributed.get(fid) ?? 0, fundTotalContributed.get(fid) ?? 0, snap.totalAssets);
-    latestFundValue.set(fid, value);
+    const positions = computeMemberPositions(entriesAsOf(entriesOf.get(fid) ?? [], snap.at), snap.totalAssets);
+    latestFundValue.set(fid, positions.get(membershipIdByFund.get(fid) ?? '')?.value ?? 0);
 
     let total = 0;
     for (const v of latestFundValue.values()) total += v;
