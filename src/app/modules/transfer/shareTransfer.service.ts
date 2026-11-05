@@ -4,10 +4,9 @@ import { ShareTransfer } from './shareTransfer.model';
 import { Membership } from '../membership/membership.model';
 import { User } from '../user/user.model';
 import { AuditLog } from '../audit/auditLog.model';
-import { LedgerEntry } from '../ledger/ledgerEntry.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
-import { memberValue, fundContributed } from '../../../shared/economics';
+import { memberPosition } from '../../../shared/economics';
 import { withFundLock } from '../../../shared/fundLock';
 import { notifyUser, notifyFundManagers } from '../../../shared/notify';
 import { ApiError } from '../../../utils/ApiError';
@@ -19,24 +18,11 @@ import type { InitiateTransferInput } from './shareTransfer.validation';
  * priced as if they'd paid on schedule. Informational only; agreedAmount is what's enforced.
  */
 async function sellerReferencePrice(fundId: string, sellerMembershipId: string, shares: number): Promise<number> {
-  const [contributedAgg, totalContributed, nav, seller] = await Promise.all([
-    LedgerEntry.aggregate<{ total: number }>([
-      {
-        $match: {
-          fundId: new Types.ObjectId(fundId),
-          membershipId: new Types.ObjectId(sellerMembershipId),
-          kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] },
-        },
-      },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]),
-    fundContributed(fundId),
+  const [nav, seller] = await Promise.all([
     computeNav(fundId),
     Membership.findById(sellerMembershipId, { shares: 1 }).lean(),
   ]);
-
-  const contributed = contributedAgg[0]?.total ?? 0;
-  const { value } = memberValue(contributed, totalContributed, nav.totalAssets);
+  const { value } = await memberPosition(fundId, sellerMembershipId, nav.totalAssets);
   const sellerShares = seller?.shares ?? 0;
   if (sellerShares <= 0) return 0;
   return Math.round((value / sellerShares) * shares);

@@ -7,7 +7,7 @@ import { User } from '../user/user.model';
 import { LedgerEntry, LedgerKind } from './ledgerEntry.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
-import { memberValue, fundContributed } from '../../../shared/economics';
+import { memberPosition } from '../../../shared/economics';
 import { currentCycleIndex, cyclesBehind } from '../../../shared/cycle';
 import { withFundLock } from '../../../shared/fundLock';
 import { notifyUser } from '../../../shared/notify';
@@ -33,30 +33,15 @@ export async function getMyLedger(fundId: string, membershipId: string) {
   if (!membership) throw new ApiError(403, 'FORBIDDEN_ROLE', 'not a member');
   if (!fund) throw new ApiError(404, 'NOT_FOUND', 'fund not found');
 
-  const [contributedAgg, totalContributed, entries] = await Promise.all([
-    LedgerEntry.aggregate<{ total: number }>([
-      {
-        $match: {
-          fundId: fid(fundId),
-          membershipId: fid(membershipId),
-          kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] },
-        },
-      },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]),
-    fundContributed(fundId),
+  const [pos, entries] = await Promise.all([
+    memberPosition(fundId, membershipId, nav.totalAssets),
     LedgerEntry.find({ fundId: fid(fundId), membershipId: fid(membershipId) })
       .sort({ at: -1 })
       .limit(50)
       .lean(),
   ]);
 
-  const contributed = contributedAgg[0]?.total ?? 0;
-  const { value: currentValue, profitShare: profitLoss } = memberValue(
-    contributed,
-    totalContributed,
-    nav.totalAssets,
-  );
+  const { contributed, value: currentValue, profitShare: profitLoss } = pos;
 
   const wd = fund.policy.collectionWeekday;
   const currentCycle = currentCycleIndex(fund.policy.startDate, fund.policy.cycleUnit, new Date(), wd);
@@ -114,20 +99,15 @@ export async function getMemberLedger(fundId: string, membershipId: string) {
 
   const user = await User.findById(membership.userId, { name: 1 }).lean();
 
-  const [contributedAgg, totalContributed, entries] = await Promise.all([
-    LedgerEntry.aggregate<{ total: number }>([
-      { $match: { fundId: fid(fundId), membershipId: fid(membershipId), kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]),
-    fundContributed(fundId),
+  const [pos, entries] = await Promise.all([
+    memberPosition(fundId, membershipId, nav.totalAssets),
     LedgerEntry.find({ fundId: fid(fundId), membershipId: fid(membershipId) })
       .sort({ at: -1 })
       .limit(50)
       .lean(),
   ]);
 
-  const contributed = contributedAgg[0]?.total ?? 0;
-  const { value: currentValue, profitShare } = memberValue(contributed, totalContributed, nav.totalAssets);
+  const { contributed, value: currentValue, profitShare } = pos;
   const wd = fund.policy.collectionWeekday;
   const currentCycle = currentCycleIndex(fund.policy.startDate, fund.policy.cycleUnit, new Date(), wd);
   const behind = cyclesBehind(fund.policy.startDate, fund.policy.cycleUnit, membership.paidThroughCycle, new Date(), wd);

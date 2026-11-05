@@ -56,6 +56,8 @@ describe('computeNav', () => {
       totalAssets: 0,
       cash: 0,
       investedAtCost: 0,
+      principalPerShare: 25000,
+      profitPerShare: 0,
     });
   });
 

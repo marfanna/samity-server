@@ -6,7 +6,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { RefreshToken } from '../_infra/refreshToken.model';
 import { hashPassword, verifyPassword } from '../../../shared/password';
 import { computeNav } from '../../../shared/nav';
-import { memberValue } from '../../../shared/economics';
+import { memberValue, memberPosition } from '../../../shared/economics';
 import { cyclesBehind } from '../../../shared/cycle';
 import { ApiError } from '../../../utils/ApiError';
 import type { UpdateMeInput } from './me.validation';
@@ -105,13 +105,9 @@ export async function getMyFunds(userId: string) {
   return Promise.all(
     memberships.map(async (m) => {
       const fund = fundById.get(String(m.fundId));
-      const [nav, memberCount, contributedAgg, fundContribAgg] = await Promise.all([
+      const [nav, memberCount, fundContribAgg] = await Promise.all([
         computeNav(m.fundId),
         Membership.countDocuments({ fundId: m.fundId, status: { $ne: 'EXITED' } }),
-        LedgerEntry.aggregate([
-          { $match: { fundId: m.fundId, membershipId: m._id, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
-          { $group: { _id: null, total: { $sum: '$amount' } } },
-        ]),
         LedgerEntry.aggregate([
           { $match: { fundId: m.fundId, kind: { $in: ['CASH_IN', 'OPENING_CONTRIBUTION'] } } },
           { $group: { _id: null, total: { $sum: '$amount' } } },
@@ -129,14 +125,14 @@ export async function getMyFunds(userId: string) {
             )
           : 0;
 
-      const contributedPaisa = (contributedAgg[0] as { total?: number } | undefined)?.total ?? 0;
-      // Value = my contributed principal + my share of fund profit, split by money paid
-      // (paid-up members only). Profit = total assets − total contributed. Zero until invested.
+      // Value = my contributed principal + my share of fund profit, split by money paid,
+      // buy-in aware (economics.fundMemberPositions). Fund profit = total assets − total contributed.
       const fundContributed = (fundContribAgg[0] as { total?: number } | undefined)?.total ?? 0;
       const profit = nav.totalAssets - fundContributed;
-      const myProfitPaisa =
-        fundContributed > 0 ? Math.round((contributedPaisa / fundContributed) * profit) : 0;
-      const valuePaisa = contributedPaisa + myProfitPaisa;
+      const pos = await memberPosition(m.fundId, m._id, nav.totalAssets);
+      const contributedPaisa = pos.contributed;
+      const myProfitPaisa = pos.profitShare;
+      const valuePaisa = pos.value;
 
       return {
         fundId: String(m.fundId),

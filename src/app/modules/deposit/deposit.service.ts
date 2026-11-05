@@ -7,6 +7,7 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { User } from '../user/user.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
+import { currentCycleIndex } from '../../../shared/cycle';
 import { presignedUrl } from '../../../shared/storage';
 import { withFundLock } from '../../../shared/fundLock';
 import { notifyUser, notifyFundManagers } from '../../../shared/notify';
@@ -293,14 +294,44 @@ export async function verifyDeposit(actorId: string, fundId: string, depositId: 
         );
 
         if (deposit.type === 'BUY_IN') {
+          // A first buy-in at NAV already covers every cycle to date (principal = cycles × face),
+          // so the new member starts fully paid — not `currentCycle` cycles behind.
+          const firstBuyIn = membership.status === 'PENDING_BUYIN';
+          const currentCycle = currentCycleIndex(
+            fund.policy.startDate,
+            fund.policy.cycleUnit,
+            new Date(),
+            fund.policy.collectionWeekday,
+          );
           await Membership.updateOne(
             { _id: membership._id },
             {
               $inc: { shares: sharesIssued },
-              $set: { status: 'ACTIVE', joinNav: navBefore.nav },
+              $set: {
+                status: 'ACTIVE',
+                joinNav: navBefore.nav,
+                ...(firstBuyIn ? { joinCycle: currentCycle, paidThroughCycle: currentCycle } : {}),
+              },
             },
             { session },
           );
+          // The part above principal bought existing profit — mark it so NAV isn't diluted
+          // and the buyer doesn't also share the profit they paid for (see economics.ts).
+          const premium = deposit.amount - sharesIssued * navBefore.principalPerShare;
+          if (premium !== 0) {
+            await appendLedger(
+              {
+                fundId,
+                kind: 'BUYIN_PREMIUM',
+                amount: premium,
+                membershipId: membership._id,
+                refType: 'DEPOSIT',
+                refId: deposit._id,
+                createdBy: actorId,
+              },
+              session,
+            );
+          }
           await appendLedger(
             {
               fundId,

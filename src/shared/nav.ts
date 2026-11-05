@@ -13,11 +13,15 @@ export interface NavResult {
   totalAssets: number; // cash + investedAtCost
   cash: number;
   investedAtCost: number;
+  principalPerShare: number; // cyclesElapsed × faceValue (≥ 1 cycle)
+  profitPerShare: number; // (realized P/L + buy-in premiums) ÷ totalShares
 }
 
 /**
  * Derive NAV from the ledger — never read a stored value as truth.
- * NAV (price per share) = principal (cyclesElapsed × faceValue) + realized profit/loss per share.
+ * NAV (price per share) = principal (cyclesElapsed × faceValue) + profit pool per share, where the
+ * profit pool = realized investment P/L + buy-in premiums. Premiums must be in the pool: a buyer
+ * pays profitPerShare for each new share, so without them every buy-in would dilute the price.
  * cash/investedAtCost/totalAssets remain the real ledger-derived fund position (used elsewhere
  * for member payout math) — only the `nav` price field follows the schedule-based formula.
  * Call inside the money-mutation transaction (pass the session) so it reflects this write.
@@ -49,9 +53,10 @@ export async function computeNav(fundId: Types.ObjectId | string, session?: Clie
   ]);
   if (session) profitAgg.session(session);
 
-  const [cashAgg, sharesAgg, invested, profit, fund] = await Promise.all([
+  const [cashAgg, sharesAgg, premiumAgg, invested, profit, fund] = await Promise.all([
     sumLedger({ kind: { $in: CASH_KINDS } }, 'amount'),
     sumLedger({}, 'shares'),
+    sumLedger({ kind: 'BUYIN_PREMIUM' }, 'amount'),
     investedAgg,
     profitAgg,
     Fund.findById(fid, { faceValue: 1, policy: 1 })
@@ -63,7 +68,7 @@ export async function computeNav(fundId: Types.ObjectId | string, session?: Clie
   const totalShares = sharesAgg[0]?.total ?? 0;
   const investedAtCost = invested[0]?.total ?? 0;
   const totalAssets = cash + investedAtCost;
-  const profitLossTotal = profit[0]?.total ?? 0;
+  const profitPool = (profit[0]?.total ?? 0) + (premiumAgg[0]?.total ?? 0);
 
   const faceValue = fund?.faceValue ?? 0;
   const cyclesElapsed = fund
@@ -71,8 +76,8 @@ export async function computeNav(fundId: Types.ObjectId | string, session?: Clie
     : 0;
   // Before the first cycle rolls over, price at one face value (fair price for the founding buy-in).
   const principalPerShare = faceValue * Math.max(cyclesElapsed, 1);
-  const profitPerShare = totalShares > 0 ? Math.round(profitLossTotal / totalShares) : 0;
+  const profitPerShare = totalShares > 0 ? Math.round(profitPool / totalShares) : 0;
   const nav = principalPerShare + profitPerShare;
 
-  return { nav, totalShares, totalAssets, cash, investedAtCost };
+  return { nav, totalShares, totalAssets, cash, investedAtCost, principalPerShare, profitPerShare };
 }

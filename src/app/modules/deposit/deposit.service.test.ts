@@ -10,6 +10,7 @@ import { Membership } from '../membership/membership.model';
 import { NavSnapshot } from '../nav/navSnapshot.model';
 import { User } from '../user/user.model';
 import { computeNav } from '../../../shared/nav';
+import { fundMemberPositions } from '../../../shared/economics';
 import { Deposit } from './deposit.model';
 import { rejectDeposit, submitDeposit, verifyDeposit } from './deposit.service';
 
@@ -247,5 +248,79 @@ describe('deposit service', () => {
         screenshotUrl: 'proof/buy-more.png',
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN_ROLE' });
+  });
+
+  it('prices a mid-fund buy-in without diluting NAV or existing members, and starts the buyer fully paid', async () => {
+    const fixture = await createFixture();
+    const DAY = 24 * 60 * 60 * 1000;
+    await Fund.updateOne({ _id: fixture.fundId }, { $set: { 'policy.startDate': new Date(Date.now() - 21 * DAY - 60_000) } });
+    // Realized ৳400 profit on a ৳500 investment — admin (5 shares) earned it all.
+    const [inv] = await Investment.create([
+      { fundId: fixture.fundId, amountCost: 50000, destination: 'x', state: 'RETURNED', actualReturn: 90000, profitLoss: 40000, recordedBy: fixture.adminUserId },
+    ]);
+    await LedgerEntry.create([
+      { fundId: fixture.fundId, kind: 'CASH_OUT_INVEST', amount: -50000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+      { fundId: fixture.fundId, kind: 'INVEST_RETURN', amount: 90000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+    ]);
+
+    const before = await computeNav(fixture.fundId);
+    expect(before).toMatchObject({ nav: 68000, principalPerShare: 60000, profitPerShare: 8000, totalAssets: 140000 });
+    const adminBefore = (await fundMemberPositions(fixture.fundId, before.totalAssets)).get(String(fixture.adminMembershipId));
+    expect(adminBefore).toMatchObject({ contributed: 100000, value: 140000, profitShare: 40000 });
+
+    const submitted = await submitDeposit(String(fixture.memberUserId), String(fixture.fundId), String(fixture.memberMembershipId), {
+      type: 'BUY_IN',
+      amount: 3 * 68000,
+      cyclesCovered: 0,
+      sharesRequested: 3,
+      screenshotUrl: 'proof/mid-fund.png',
+    });
+    await verifyDeposit(String(fixture.adminUserId), String(fixture.fundId), submitted.depositId);
+
+    const after = await computeNav(fixture.fundId);
+    expect(after).toMatchObject({ nav: 68000, totalShares: 8, totalAssets: 344000 });
+
+    const premium = await LedgerEntry.findOne({ kind: 'BUYIN_PREMIUM', refId: new Types.ObjectId(submitted.depositId) }).lean();
+    expect(premium).toMatchObject({ amount: 24000 });
+
+    const positions = await fundMemberPositions(fixture.fundId, after.totalAssets);
+    expect(positions.get(String(fixture.adminMembershipId))).toMatchObject({ value: 140000, profitShare: 40000 });
+    expect(positions.get(String(fixture.memberMembershipId))).toMatchObject({ contributed: 204000, value: 204000, profitShare: 0 });
+
+    await expect(Membership.findById(fixture.memberMembershipId).lean()).resolves.toMatchObject({
+      status: 'ACTIVE',
+      shares: 3,
+      joinCycle: 3,
+      paidThroughCycle: 3,
+    });
+  });
+
+  it('shares profit earned after a buy-in with the buyer by money paid', async () => {
+    const fixture = await createFixture();
+    const DAY = 24 * 60 * 60 * 1000;
+    await Fund.updateOne({ _id: fixture.fundId }, { $set: { 'policy.startDate': new Date(Date.now() - 21 * DAY - 60_000) } });
+    const submitted = await submitDeposit(String(fixture.memberUserId), String(fixture.fundId), String(fixture.memberMembershipId), {
+      type: 'BUY_IN',
+      amount: 3 * 60000,
+      cyclesCovered: 0,
+      sharesRequested: 3,
+      screenshotUrl: 'proof/no-profit-yet.png',
+    });
+    await verifyDeposit(String(fixture.adminUserId), String(fixture.fundId), submitted.depositId);
+    // No premium at zero profit.
+    await expect(LedgerEntry.countDocuments({ kind: 'BUYIN_PREMIUM' })).resolves.toBe(0);
+
+    // Later ৳560 profit: admin paid 100000, member 180000 → 5:9 split.
+    const [inv] = await Investment.create([
+      { fundId: fixture.fundId, amountCost: 50000, destination: 'x', state: 'RETURNED', actualReturn: 106000, profitLoss: 56000, recordedBy: fixture.adminUserId },
+    ]);
+    await LedgerEntry.create([
+      { fundId: fixture.fundId, kind: 'CASH_OUT_INVEST', amount: -50000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+      { fundId: fixture.fundId, kind: 'INVEST_RETURN', amount: 106000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+    ]);
+    const nav = await computeNav(fixture.fundId);
+    const positions = await fundMemberPositions(fixture.fundId, nav.totalAssets);
+    expect(positions.get(String(fixture.adminMembershipId))).toMatchObject({ profitShare: 20000 });
+    expect(positions.get(String(fixture.memberMembershipId))).toMatchObject({ profitShare: 36000 });
   });
 });

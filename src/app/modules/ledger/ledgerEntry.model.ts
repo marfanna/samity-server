@@ -12,6 +12,7 @@ export const LEDGER_KINDS = [
   'REVERSAL',
   'OPENING_CASH', // imported fund: liquid cash on hand at genesis (counts as NAV cash)
   'OPENING_CONTRIBUTION', // imported fund: per-member cost basis at genesis (display only, not cash)
+  'BUYIN_PREMIUM', // non-cash marker: part of a buy-in's CASH_IN that bought existing profit (amount = premium)
 ] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
