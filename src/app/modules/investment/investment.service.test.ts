@@ -9,7 +9,8 @@ import { NavSnapshot } from '../nav/navSnapshot.model';
 import { appendLedger } from '../../../shared/ledger';
 import { computeNav } from '../../../shared/nav';
 import { Investment } from './investment.model';
-import { recordInvestment, recordReturn } from './investment.service';
+import { reverseLedgerEntry } from '../ledger/ledger.service';
+import { correctReturn, recordInvestment, recordReturn } from './investment.service';
 
 const actorId = new Types.ObjectId();
 
@@ -214,6 +215,71 @@ describe('investment service', () => {
           screenshotUrl: 'proof/second.png',
         }),
       ).rejects.toMatchObject({ code: 'STATE_CONFLICT', statusCode: 409 });
+    });
+  });
+
+  describe('correctReturn', () => {
+    async function mistypedReturn() {
+      const fundId = await createFund(20000);
+      await appendOpeningCapital(fundId, 100000, 5);
+      const investmentId = await seedActiveInvestment(fundId, 60000);
+      // Admin typed the profit (৳20) instead of the total that came back (৳620).
+      await recordReturn(String(actorId), String(fundId), String(investmentId), { actualReturn: 2000, screenshotUrl: 'proof/r.png' });
+      return { fundId, investmentId };
+    }
+
+    it('reverses the wrong return, records the right one, and restores NAV/cash', async () => {
+      const { fundId, investmentId } = await mistypedReturn();
+      expect(await computeNav(fundId)).toMatchObject({ cash: 42000, profitPerShare: -11600 });
+
+      const result = await correctReturn(String(actorId), String(fundId), String(investmentId), {
+        actualReturn: 62000,
+        reason: 'typed profit instead of total return',
+      });
+      expect(result).toMatchObject({ actualReturn: 62000, profitLoss: 2000, nav: 20400 });
+
+      await expect(Investment.findById(investmentId).lean()).resolves.toMatchObject({ state: 'RETURNED', actualReturn: 62000, profitLoss: 2000 });
+      await expect(computeNav(fundId)).resolves.toMatchObject({ nav: 20400, cash: 102000, profitPerShare: 400 });
+
+      const returns = await LedgerEntry.find({ fundId, kind: 'INVEST_RETURN' }).sort({ at: 1 }).lean();
+      expect(returns.map((r) => r.amount)).toEqual([2000, 62000]);
+      await expect(LedgerEntry.findOne({ fundId, kind: 'REVERSAL' }).lean()).resolves.toMatchObject({ amount: -2000, reversalOf: returns[0]!._id });
+      await expect(NavSnapshot.countDocuments({ fundId, reason: 'CORRECTION' })).resolves.toBe(1);
+      await expect(AuditLog.findOne({ fundId, action: 'INVEST_RETURN_CORRECT' }).lean()).resolves.toMatchObject({
+        before: { actualReturn: 2000, profitLoss: -58000 },
+        after: { actualReturn: 62000, profitLoss: 2000, reason: 'typed profit instead of total return' },
+      });
+    });
+
+    it('can correct the same investment twice (reverses the latest live return)', async () => {
+      const { fundId, investmentId } = await mistypedReturn();
+      await correctReturn(String(actorId), String(fundId), String(investmentId), { actualReturn: 50000, reason: 'first fix' });
+      await correctReturn(String(actorId), String(fundId), String(investmentId), { actualReturn: 62000, reason: 'second fix' });
+
+      await expect(computeNav(fundId)).resolves.toMatchObject({ cash: 102000, profitPerShare: 400 });
+      await expect(LedgerEntry.countDocuments({ fundId, kind: 'REVERSAL' })).resolves.toBe(2);
+    });
+
+    it('rejects an ACTIVE investment and an unchanged amount', async () => {
+      const fundId = await createFund(20000);
+      await appendOpeningCapital(fundId, 100000, 5);
+      const active = await seedActiveInvestment(fundId, 60000);
+      await expect(
+        correctReturn(String(actorId), String(fundId), String(active), { actualReturn: 1000, reason: 'nope' }),
+      ).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+
+      const { fundId: f2, investmentId } = await mistypedReturn();
+      await expect(
+        correctReturn(String(actorId), String(f2), String(investmentId), { actualReturn: 2000, reason: 'same' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('blocks the generic ledger reversal on an INVEST_RETURN (would leave profit stale)', async () => {
+      const { fundId } = await mistypedReturn();
+      const entry = await LedgerEntry.findOne({ fundId, kind: 'INVEST_RETURN' }).lean();
+      await expect(reverseLedgerEntry(String(actorId), String(fundId), String(entry!._id), 'oops')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR',
+      });
     });
   });
 });

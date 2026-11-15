@@ -16,7 +16,7 @@ import * as investments from '../investment/investment.controller';
 import * as ledger from '../ledger/ledger.controller';
 import { decideJoinSchema, createInviteSchema } from '../membership/membership.validation';
 import { rejectDepositSchema, submitDepositSchema } from '../deposit/deposit.validation';
-import { recordInvestmentSchema, recordReturnSchema } from '../investment/investment.validation';
+import { correctReturnSchema, recordInvestmentSchema, recordReturnSchema } from '../investment/investment.validation';
 import * as transfers from '../transfer/shareTransfer.controller';
 import { initiateTransferSchema } from '../transfer/shareTransfer.validation';
 import { reverseLedgerEntrySchema } from '../ledger/ledger.validation';
@@ -79,6 +79,7 @@ router.patch('/:fundId/deposits/:id/reject', fundRole('moderator'), validateBody
 router.post('/:fundId/investments', fundRole('moderator'), validateBody(recordInvestmentSchema), investments.recordInvestment);
 router.get('/:fundId/investments', fundRole('member'), investments.listInvestments);
 router.patch('/:fundId/investments/:id/return', fundRole('moderator'), validateBody(recordReturnSchema), investments.recordReturn);
+router.patch('/:fundId/investments/:id/return/correct', fundRole('admin'), validateBody(correctReturnSchema), investments.correctReturn);
 
 // share transfers
 router.post('/:fundId/transfers', fundRole('member'), validateBody(initiateTransferSchema), transfers.initiateTransfer);

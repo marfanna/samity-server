@@ -148,6 +148,10 @@ export async function reverseLedgerEntry(actorId: string, fundId: string, entryI
       await session.withTransaction(async () => {
         const original = await LedgerEntry.findOne({ _id: entryId, fundId: fid(fundId) }).session(session);
         if (!original) throw new ApiError(404, 'NOT_FOUND', 'ledger entry not found');
+        if (original.kind === 'INVEST_RETURN') {
+          // Reversing only the ledger row would leave Investment.profitLoss (NAV's profit pool) stale.
+          throw new ApiError(400, 'VALIDATION_ERROR', 'use "Correct return" on the investment to fix a return');
+        }
         if (!REVERSIBLE_KINDS.includes(original.kind)) {
           throw new ApiError(
             400,

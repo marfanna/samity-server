@@ -27,3 +27,13 @@ export const recordReturn = catchAsync(async (req: Request, res: Response) => {
   );
   sendResponse(res, httpStatus.OK, result);
 });
+
+export const correctReturn = catchAsync(async (req: Request, res: Response) => {
+  const result = await investmentService.correctReturn(
+    req.userId!,
+    req.params.fundId!,
+    req.params.id!,
+    req.body,
+  );
+  sendResponse(res, httpStatus.OK, result);
+});

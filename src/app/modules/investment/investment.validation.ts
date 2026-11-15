@@ -15,5 +15,11 @@ export const recordReturnSchema = z.object({
   screenshotUrl: z.string().trim().min(1),
 });
 
+export const correctReturnSchema = z.object({
+  actualReturn: z.number().int('must be integer paisa').min(0),
+  reason: z.string().trim().min(3).max(300),
+});
+
 export type RecordInvestmentInput = z.infer<typeof recordInvestmentSchema>;
 export type RecordReturnInput = z.infer<typeof recordReturnSchema>;
+export type CorrectReturnInput = z.infer<typeof correctReturnSchema>;
