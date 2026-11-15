@@ -110,6 +110,7 @@ export function entriesAsOf(entries: PositionEntry[], asOf: Date): PositionEntry
 /** Pure core of fundMemberPositions — see its doc. `entries` must be oldest first. */
 export function computeMemberPositions(entries: PositionEntry[], totalAssets: number): Map<string, MemberPosition> {
   const kindById = new Map(entries.map((e) => [String(e._id), e.kind]));
+  const byId = new Map(entries.map((e) => [String(e._id), e]));
   const investCost = new Map<string, number>(); // investmentId → cost, from CASH_OUT_INVEST
 
   const contributed = new Map<string, number>(); // gross cash paid per member
@@ -143,6 +144,13 @@ export function computeMemberPositions(entries: PositionEntry[], totalAssets: nu
     } else if (e.kind === 'REVERSAL' && mid && e.reversalOf && kindById.get(String(e.reversalOf)) === 'CASH_IN') {
       add(contributed, mid, e.amount); // amount is negative
       contributedTotal += e.amount;
+    } else if (e.kind === 'REVERSAL' && e.reversalOf) {
+      // Reversing an investment leg undoes its effect on money-at-cost too, or a corrected
+      // return (reverse + re-record) would remove the investment's cost twice.
+      const orig = byId.get(String(e.reversalOf));
+      const cost = orig?.refId ? investCost.get(String(orig.refId)) ?? 0 : 0;
+      if (orig?.kind === 'INVEST_RETURN') invested += cost;
+      else if (orig?.kind === 'CASH_OUT_INVEST') invested -= cost;
     } else if (e.kind === 'BUYIN_PREMIUM' && mid) {
       add(premium, mid, e.amount);
       // Pair with the buy-in's CASH_IN: same deposit refId (app flow) or refId = the CASH_IN id (correction).

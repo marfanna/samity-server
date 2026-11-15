@@ -328,4 +328,36 @@ describe('deposit service', () => {
     expect(positions.get(String(fixture.adminMembershipId))).toMatchObject({ profitShare: 20000 });
     expect(positions.get(String(fixture.memberMembershipId))).toMatchObject({ profitShare: 36000 });
   });
+
+  it('keeps buy-in profit fair after an investment return was reversed and re-recorded', async () => {
+    const fixture = await createFixture();
+    const DAY = 24 * 60 * 60 * 1000;
+    await Fund.updateOne({ _id: fixture.fundId }, { $set: { 'policy.startDate': new Date(Date.now() - 21 * DAY - 60_000) } });
+    // ৳500 out; return mistyped as ৳40 (the profit), reversed, then the real ৳900 recorded.
+    const [inv] = await Investment.create([
+      { fundId: fixture.fundId, amountCost: 50000, destination: 'x', state: 'RETURNED', actualReturn: 90000, profitLoss: 40000, recordedBy: fixture.adminUserId },
+    ]);
+    const [, wrong] = await LedgerEntry.create([
+      { fundId: fixture.fundId, kind: 'CASH_OUT_INVEST', amount: -50000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+      { fundId: fixture.fundId, kind: 'INVEST_RETURN', amount: 4000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+    ]);
+    await LedgerEntry.create([
+      { fundId: fixture.fundId, kind: 'REVERSAL', amount: -4000, refType: 'CORRECTION', reversalOf: wrong!._id, createdBy: fixture.adminUserId },
+      { fundId: fixture.fundId, kind: 'INVEST_RETURN', amount: 90000, refType: 'INVESTMENT', refId: inv!._id, createdBy: fixture.adminUserId },
+    ]);
+
+    const submitted = await submitDeposit(String(fixture.memberUserId), String(fixture.fundId), String(fixture.memberMembershipId), {
+      type: 'BUY_IN',
+      amount: 3 * 68000,
+      cyclesCovered: 0,
+      sharesRequested: 3,
+      screenshotUrl: 'proof/after-correction.png',
+    });
+    await verifyDeposit(String(fixture.adminUserId), String(fixture.fundId), submitted.depositId);
+
+    const nav = await computeNav(fixture.fundId);
+    const positions = await fundMemberPositions(fixture.fundId, nav.totalAssets);
+    expect(positions.get(String(fixture.adminMembershipId))).toMatchObject({ value: 140000, profitShare: 40000 });
+    expect(positions.get(String(fixture.memberMembershipId))).toMatchObject({ value: 204000, profitShare: 0 });
+  });
 });
